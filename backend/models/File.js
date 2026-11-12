@@ -13,6 +13,11 @@ class File {
       id: uuidv4(),
       ...fileData,
       sharedWith: [],
+      versions: [],
+      favorite: false,
+      recentAt: null,
+      deletedAt: null,
+      shareToken: null,
       createdAt: new Date(),
       updatedAt: new Date()
     };
@@ -36,13 +41,13 @@ class File {
 
   async getFilesByUserId(userId, folderId = null) {
     return this.files.filter(file => 
-      file.userId === userId && file.folderId === folderId
+      file.userId === userId && !file.deletedAt && file.folderId === folderId
     );
   }
 
   async getFoldersByUserId(userId, parentId = null) {
     return this.folders.filter(folder => 
-      folder.userId === userId && folder.parentId === parentId
+      folder.userId === userId && !folder.deletedAt && folder.parentId === parentId
     );
   }
 
@@ -52,7 +57,7 @@ class File {
 
   async getFileByIdForUser(id, userId) {
     return this.files.find((file) => {
-      if (file.id !== id) {
+      if (file.id !== id || file.deletedAt) {
         return false;
       }
 
@@ -135,23 +140,23 @@ class File {
   }
 
   async deleteFile(id, userId) {
-    const fileIndex = this.files.findIndex(file => file.id === id && file.userId === userId);
-    if (fileIndex > -1) {
-      const file = this.files[fileIndex];
-      
-      // Delete physical file
-      const filePath = path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', file.filename);
-      try {
-        await fs.remove(filePath);
-      } catch (error) {
-        console.error('Error deleting physical file:', error);
-      }
-      
-      this.files.splice(fileIndex, 1);
+    const file = this.files.find(file => file.id === id && file.userId === userId && !file.deletedAt);
+    if (file) {
+      file.deletedAt = new Date();
       return true;
     }
     return false;
   }
+
+  async getTrash(userId) { return { files: this.files.filter(f => f.userId === userId && f.deletedAt), folders: this.folders.filter(f => f.userId === userId && f.deletedAt) }; }
+  async restoreFile(id, userId) { const f = this.files.find(f => f.id === id && f.userId === userId && f.deletedAt); if (!f) return false; f.deletedAt = null; return true; }
+  async permanentlyDeleteFile(id, userId) { const i = this.files.findIndex(f => f.id === id && f.userId === userId && f.deletedAt); if (i < 0) return false; const f = this.files[i]; await fs.remove(path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', f.filename)); this.files.splice(i, 1); return true; }
+  async toggleFavorite(id, userId) { const f = await this.getFileById(id,userId); if (!f) return null; f.favorite = !f.favorite; return f; }
+  async markRecent(id,userId) { const f = await this.getFileByIdForUser(id,userId); if (f) f.recentAt = new Date(); return f; }
+  async createShareLink(id,userId,permission='viewer') { const f = await this.getFileById(id,userId); if (!f) return null; f.shareToken ||= uuidv4(); f.linkPermission = permission; return f; }
+  async getByShareToken(token) { return this.files.find(f => f.shareToken === token && !f.deletedAt) || null; }
+  async saveVersion(id,userId) { const f = await this.getFileById(id,userId); if (!f) return null; f.versions ||= []; f.versions.push({ filename:f.filename, originalName:f.originalName, size:f.size, mimetype:f.mimetype, createdAt:new Date() }); return f.versions; }
+  async getStorage(userId) { const files=this.files.filter(f=>f.userId===userId&&!f.deletedAt); const used=files.reduce((n,f)=>n+(f.size||0),0); const quota=Number(process.env.STORAGE_QUOTA_BYTES)||15*1024*1024*1024; return {used,quota,available:Math.max(0,quota-used)}; }
 
   async deleteFolder(id, userId) {
     const folderIndex = this.folders.findIndex(folder => folder.id === id && folder.userId === userId);

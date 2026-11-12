@@ -9,6 +9,14 @@ const UserModel = require('../models/User');
 
 const router = express.Router();
 
+router.get('/trash', auth, async (req,res) => res.json(await FileModel.getTrash(req.user.id)));
+router.post('/:id/restore', auth, async (req,res) => res.json({restored: await FileModel.restoreFile(req.params.id,req.user.id)}));
+router.delete('/:id/permanent', auth, async (req,res) => { const ok=await FileModel.permanentlyDeleteFile(req.params.id,req.user.id); return res.status(ok?200:404).json({deleted:ok}); });
+router.get('/recent', auth, async (req,res) => res.json({files:FileModel.files.filter(f=>!f.deletedAt&&(f.userId===req.user.id||(f.sharedWith||[]).some(s=>s.userId===req.user.id))&&f.recentAt).sort((a,b)=>new Date(b.recentAt)-new Date(a.recentAt))}));
+router.get('/favorites', auth, async (req,res) => res.json({files:FileModel.files.filter(f=>f.userId===req.user.id&&f.favorite&&!f.deletedAt)}));
+router.get('/storage', auth, async (req,res) => res.json(await FileModel.getStorage(req.user.id)));
+router.get('/link/:token', async (req,res) => { const f=await FileModel.getByShareToken(req.params.token); if(!f)return res.status(404).json({error:'Share link not found'}); res.json({file:f,permission:f.linkPermission||'viewer'}); });
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -107,6 +115,7 @@ router.get('/download/:id', auth, async (req, res) => {
     if (!file) {
       return res.status(404).json({ error: 'File not found' });
     }
+    await FileModel.markRecent(file.id, req.user.id);
 
     const filePath = path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', file.filename);
     
@@ -123,11 +132,21 @@ router.get('/download/:id', auth, async (req, res) => {
   }
 });
 
+router.get('/:id/preview', auth, async (req,res) => {
+  const f=await FileModel.getFileByIdForUser(req.params.id,req.user.id); if(!f)return res.status(404).json({error:'File not found'});
+  const p=path.join(__dirname,'..',process.env.UPLOAD_DIR||'uploads',f.filename); if(!await fs.pathExists(p))return res.status(404).json({error:'Physical file not found'});
+  await FileModel.markRecent(f.id,req.user.id); res.type(f.mimetype).sendFile(p);
+});
+router.post('/:id/favorite', auth, async (req,res) => {const f=await FileModel.toggleFavorite(req.params.id,req.user.id); return f?res.json({file:f}):res.status(404).json({error:'File not found'});});
+router.post('/:id/share-link', auth, async (req,res) => {const p=req.body.permission||'viewer'; if(!['viewer','commenter','editor'].includes(p))return res.status(400).json({error:'Invalid permission'}); const f=await FileModel.createShareLink(req.params.id,req.user.id,p); return f?res.json({url:`${req.protocol}://${req.get('host')}/api/files/link/${f.shareToken}`,token:f.shareToken,permission:p}):res.status(404).json({error:'File not found'});});
+router.get('/:id/versions', auth, async (req,res) => {const f=await FileModel.getFileById(req.params.id,req.user.id); return f?res.json({versions:f.versions||[]}):res.status(404).json({error:'File not found'});});
+router.post('/:id/versions', auth, async (req,res) => {const v=await FileModel.saveVersion(req.params.id,req.user.id); return v?res.status(201).json({versions:v}):res.status(404).json({error:'File not found'});});
+
 // Share file with another user by email
 router.post('/:id/share', auth, async (req, res) => {
   try {
     const { email, permission } = req.body;
-    const normalizedPermission = permission === 'editor' ? 'editor' : 'viewer';
+    const normalizedPermission = ['viewer','commenter','editor'].includes(permission) ? permission : 'viewer';
 
     if (!email || !email.trim()) {
       return res.status(400).json({ error: 'Email is required' });
