@@ -142,7 +142,6 @@ This creates an optimized build in the `build` folder ready for deployment.
 
 The built app can be deployed to any static hosting service like:
 - Netlify
-- Vercel
 - GitHub Pages
 - AWS S3
 - Apache/Nginx server

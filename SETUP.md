@@ -74,7 +74,7 @@ NODE_ENV=development
 2. Deploy backend code
 3. Update CORS settings if needed
 
-### Frontend (Netlify/Vercel)
+### Frontend (Netlify)
 1. Build the project: `npm run build`
 2. Deploy the `build` folder
 3. Set `REACT_APP_API_URL` to your deployed backend API URL, for example:
