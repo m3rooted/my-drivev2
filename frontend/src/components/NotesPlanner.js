@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
-import { CalendarClock, Clock3, Plus, StickyNote, Trash2 } from 'lucide-react';
+import { CalendarClock, Clock3, Plus, StickyNote, Trash2, Sparkles, Bell } from 'lucide-react';
 import { getNotesStreamUrl, notesAPI } from '../services/api';
 
 const toIsoDateTime = (value) => {
@@ -13,9 +13,8 @@ const toIsoDateTime = (value) => {
 const formatDateTime = (value) => {
   if (!value) return 'No time';
   return new Date(value).toLocaleString('en-US', {
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
+    month: 'short',
+    day: 'numeric',
     hour: '2-digit',
     minute: '2-digit'
   });
@@ -45,10 +44,7 @@ const NotesPlanner = () => {
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [streamConnected, setStreamConnected] = useState(false);
   const [scheduleSort, setScheduleSort] = useState('soon');
-  const [noteForm, setNoteForm] = useState({
-    title: '',
-    content: ''
-  });
+  const [noteForm, setNoteForm] = useState({ title: '', content: '' });
   const [scheduleForm, setScheduleForm] = useState({
     title: '',
     content: '',
@@ -126,7 +122,6 @@ const NotesPlanner = () => {
 
   const handleCreateNote = async (event) => {
     event.preventDefault();
-
     if (!noteForm.title.trim()) {
       toast.error('Please enter a note title');
       return;
@@ -150,7 +145,6 @@ const NotesPlanner = () => {
 
   const handleCreateSchedule = async (event) => {
     event.preventDefault();
-
     if (!scheduleForm.title.trim()) {
       toast.error('Please enter a schedule title');
       return;
@@ -194,166 +188,208 @@ const NotesPlanner = () => {
   };
 
   return (
-    <div>
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
-        <div className="bg-white rounded-2xl border border-gray-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <StickyNote className="w-6 h-6 text-blue-600" />
-            <h2 className="text-4 font-bold text-gray-900">Notes</h2>
+    <div className="space-y-6">
+      
+      {/* Tiêu đề phần Notes & Planner */}
+      <div className="flex items-center justify-between bg-white dark:bg-slate-900 px-6 py-4 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+            <Sparkles size={20} />
           </div>
-
-          <form onSubmit={handleCreateNote} className="space-y-3">
-            <input
-              type="text"
-              className="w-full px-3 py-2 border border-gray-300 rounded-xl"
-              placeholder="Note title"
-              value={noteForm.title}
-              onChange={(e) => setNoteForm((prev) => ({ ...prev, title: e.target.value }))}
-            />
-            <textarea
-              className="w-full px-3 py-2 border border-gray-300 rounded-xl"
-              rows={5}
-              placeholder="Content"
-              value={noteForm.content}
-              onChange={(e) => setNoteForm((prev) => ({ ...prev, content: e.target.value }))}
-            />
-            <button
-              type="submit"
-              disabled={savingNote}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-blue-600 text-white rounded-xl hover:bg-blue-700 disabled:opacity-60"
-            >
-              <Plus size={16} />
-              {savingNote ? 'Adding...' : 'Add note'}
-            </button>
-          </form>
-
-          <div className="mt-5 space-y-2">
-            {loading ? (
-              <p className="text-sm text-gray-500">Loading...</p>
-            ) : noteItems.length === 0 ? (
-              <p className="text-sm text-gray-500">No notes yet.</p>
-            ) : (
-              noteItems.map((item) => (
-                <div key={item.id} className="border border-gray-200 rounded-xl p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="font-medium text-gray-900 truncate">{item.title}</p>
-                      {item.content && <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap">{item.content}</p>}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(item.id)}
-                      className="text-red-600 hover:text-red-700"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
+          <div>
+            <h2 className="text-base font-bold text-slate-800 dark:text-slate-100">Notes & Schedule Planner</h2>
+            <p className="text-xs text-slate-400">Capture quick thoughts and manage time-bound tasks seamlessly.</p>
           </div>
         </div>
+        <div className="text-xs font-medium text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1.5 rounded-xl">
+          {streamConnected ? '🟢 Realtime synced' : '🟡 Connecting...'}
+        </div>
+      </div>
 
-        <div className="bg-white rounded-2xl border border-gray-200 p-6">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <div className="flex items-center gap-2">
-              <CalendarClock className="w-6 h-6 text-green-600" />
-              <h2 className="text-4 font-bold text-gray-900">Schedule</h2>
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        
+        {/* --- CỘT 1: NOTES (GHI CHÚ) --- */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center gap-2.5 mb-5">
+              <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-500 flex items-center justify-center">
+                <StickyNote className="w-4 h-4" />
+              </div>
+              <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider">Quick Notes</h3>
             </div>
-            <select
-              className="px-3 py-2 border border-gray-300 rounded-xl"
-              value={scheduleSort}
-              onChange={(e) => setScheduleSort(e.target.value)}
-            >
-              <option value="soon">Soon to late</option>
-              <option value="late">Late to soon</option>
-            </select>
-          </div>
 
-          <form onSubmit={handleCreateSchedule} className="space-y-3">
-            <input
-              type="text"
-              className="w-full px-3 py-2 border border-gray-300 rounded-xl"
-              placeholder="Task title"
-              value={scheduleForm.title}
-              onChange={(e) => setScheduleForm((prev) => ({ ...prev, title: e.target.value }))}
-            />
-            <textarea
-              className="w-full px-3 py-2 border border-gray-300 rounded-xl"
-              rows={4}
-              placeholder="Description (optional)"
-              value={scheduleForm.content}
-              onChange={(e) => setScheduleForm((prev) => ({ ...prev, content: e.target.value }))}
-            />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <form onSubmit={handleCreateNote} className="space-y-3.5">
               <input
-                type="datetime-local"
-                className="w-full px-3 py-2 border border-gray-300 rounded-xl"
-                value={scheduleForm.startAt}
-                onChange={(e) => setScheduleForm((prev) => ({ ...prev, startAt: e.target.value }))}
+                type="text"
+                className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-xs font-medium text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all placeholder:text-slate-400"
+                placeholder="Note title..."
+                value={noteForm.title}
+                onChange={(e) => setNoteForm((prev) => ({ ...prev, title: e.target.value }))}
               />
-              <input
-                type="datetime-local"
-                className="w-full px-3 py-2 border border-gray-300 rounded-xl"
-                value={scheduleForm.endAt}
-                onChange={(e) => setScheduleForm((prev) => ({ ...prev, endAt: e.target.value }))}
+              <textarea
+                className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-xs font-medium text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-amber-500 focus:outline-none transition-all placeholder:text-slate-400 resize-none"
+                rows={4}
+                placeholder="Write down your thoughts..."
+                value={noteForm.content}
+                onChange={(e) => setNoteForm((prev) => ({ ...prev, content: e.target.value }))}
               />
-            </div>
-            <input
-              type="number"
-              min="0"
-              className="w-full px-3 py-2 border border-gray-300 rounded-xl"
-              placeholder="Reminder minutes before due time"
-              value={scheduleForm.reminderMinutesBefore}
-              onChange={(e) => setScheduleForm((prev) => ({ ...prev, reminderMinutesBefore: e.target.value }))}
-            />
-            <button
-              type="submit"
-              disabled={savingSchedule}
-              className="inline-flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white rounded-xl hover:bg-green-700 disabled:opacity-60"
-            >
-              <Plus size={16} />
-              {savingSchedule ? 'Adding...' : 'Add event'}
-            </button>
-          </form>
+              <button
+                type="submit"
+                disabled={savingNote}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white rounded-2xl text-xs font-semibold shadow-md shadow-amber-500/20 disabled:opacity-60 transition-all"
+              >
+                <Plus size={16} />
+                {savingNote ? 'Adding...' : 'Add Note'}
+              </button>
+            </form>
 
-          <div className="mt-5 space-y-2">
-            {loading ? (
-              <p className="text-sm text-gray-500">Loading...</p>
-            ) : scheduleItems.length === 0 ? (
-              <p className="text-sm text-gray-500">No events yet.</p>
-            ) : (
-              scheduleItems.map((item) => (
-                <div key={item.id} className="border border-gray-200 rounded-xl p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="flex items-center gap-2">
-                        <Clock3 className="w-4 h-4 text-green-700" />
-                        <p className="font-medium text-gray-900">{item.title}</p>
+            <div className="mt-6 space-y-3 max-h-[400px] overflow-y-auto pr-1">
+              {loading ? (
+                <p className="text-xs text-slate-400 text-center py-4">Loading notes...</p>
+              ) : noteItems.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-6">No notes recorded yet.</p>
+              ) : (
+                noteItems.map((item) => (
+                  <div key={item.id} className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 rounded-2xl p-4 transition-all hover:shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="font-bold text-xs text-slate-800 dark:text-slate-100 truncate">{item.title}</p>
+                        {item.content && <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-wrap leading-relaxed">{item.content}</p>}
                       </div>
-                      {item.content && <p className="text-sm text-gray-700 mt-1 whitespace-pre-wrap">{item.content}</p>}
-                      <p className="text-xs text-gray-500 mt-1">Start: {formatDateTime(item.startAt)}</p>
-                      {item.endAt && <p className="text-xs text-gray-500">End: {formatDateTime(item.endAt)}</p>}
-                      <p className="text-xs text-gray-500">Email reminder: {item.reminderMinutesBefore ?? 10} minutes before due time</p>
-                      <p className="text-xs text-green-700 mt-1">Remaining: {formatCountdown(item.endAt || item.startAt, syncedNowMs)}</p>
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(item.id)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all"
+                      >
+                        <Trash2 size={15} />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => handleDelete(item.id)}
-                      className="text-red-600 hover:text-red-700"
-                    >
-                      <Trash2 size={16} />
-                    </button>
                   </div>
-                </div>
-              ))
-            )}
-          </div>
-
-          <div className="mt-4 text-xs text-gray-500">
-            Server time: {new Date(syncedNowMs).toLocaleTimeString('en-US')} | {streamConnected ? 'Realtime connected' : 'Connecting to realtime...'}
+                ))
+              )}
+            </div>
           </div>
         </div>
+
+        {/* --- CỘT 2: SCHEDULE (LỊCH TRÌNH & NHẮC NHỞ) --- */}
+        <div className="bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800 p-6 shadow-2xs flex flex-col justify-between">
+          <div>
+            <div className="flex items-center justify-between gap-3 mb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
+                  <CalendarClock className="w-4 h-4" />
+                </div>
+                <h3 className="text-sm font-bold text-slate-800 dark:text-slate-100 uppercase tracking-wider">Schedule & Planner</h3>
+              </div>
+              <select
+                className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 border-none rounded-xl text-xs font-semibold text-slate-700 dark:text-slate-300 focus:outline-none"
+                value={scheduleSort}
+                onChange={(e) => setScheduleSort(e.target.value)}
+              >
+                <option value="soon">Soonest first</option>
+                <option value="late">Latest first</option>
+              </select>
+            </div>
+
+            <form onSubmit={handleCreateSchedule} className="space-y-3.5">
+              <input
+                type="text"
+                className="w-full px-4 py-2.5 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-xs font-medium text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all placeholder:text-slate-400"
+                placeholder="Task title..."
+                value={scheduleForm.title}
+                onChange={(e) => setScheduleForm((prev) => ({ ...prev, title: e.target.value }))}
+              />
+              <textarea
+                className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-2xl text-xs font-medium text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 focus:outline-none transition-all placeholder:text-slate-400 resize-none"
+                rows={2}
+                placeholder="Description (optional)..."
+                value={scheduleForm.content}
+                onChange={(e) => setScheduleForm((prev) => ({ ...prev, content: e.target.value }))}
+              />
+              
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">Start Time</label>
+                  <input
+                    type="datetime-local"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-xs font-medium text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    value={scheduleForm.startAt}
+                    onChange={(e) => setScheduleForm((prev) => ({ ...prev, startAt: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">End Time</label>
+                  <input
+                    type="datetime-local"
+                    className="w-full px-3 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-xs font-medium text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 focus:outline-none"
+                    value={scheduleForm.endAt}
+                    onChange={(e) => setScheduleForm((prev) => ({ ...prev, endAt: e.target.value }))}
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Bell size={14} className="text-slate-400 shrink-0" />
+                <input
+                  type="number"
+                  min="0"
+                  className="w-full px-4 py-2 bg-slate-50 dark:bg-slate-800 border-none rounded-xl text-xs font-medium text-slate-800 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 focus:outline-none placeholder:text-slate-400"
+                  placeholder="Email reminder minutes before due time"
+                  value={scheduleForm.reminderMinutesBefore}
+                  onChange={(e) => setScheduleForm((prev) => ({ ...prev, reminderMinutesBefore: e.target.value }))}
+                />
+              </div>
+
+              <button
+                type="submit"
+                disabled={savingSchedule}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-semibold shadow-md shadow-emerald-500/20 disabled:opacity-60 transition-all"
+              >
+                <Plus size={16} />
+                {savingSchedule ? 'Adding...' : 'Add Event & Schedule'}
+              </button>
+            </form>
+
+            <div className="mt-6 space-y-3 max-h-[340px] overflow-y-auto pr-1">
+              {loading ? (
+                <p className="text-xs text-slate-400 text-center py-4">Loading schedule...</p>
+              ) : scheduleItems.length === 0 ? (
+                <p className="text-xs text-slate-400 text-center py-6">No scheduled events yet.</p>
+              ) : (
+                scheduleItems.map((item) => (
+                  <div key={item.id} className="bg-slate-50 dark:bg-slate-800/60 border border-slate-200/60 dark:border-slate-700/60 rounded-2xl p-4 transition-all hover:shadow-sm">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <Clock3 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <p className="font-bold text-xs text-slate-800 dark:text-slate-100">{item.title}</p>
+                        </div>
+                        {item.content && <p className="text-xs text-slate-600 dark:text-slate-300 mt-1 whitespace-pre-wrap leading-relaxed">{item.content}</p>}
+                        
+                        <div className="mt-2.5 space-y-1 text-[11px] text-slate-400">
+                          <p>📅 Start: {formatDateTime(item.startAt)}</p>
+                          {item.endAt && <p>🏁 End: {formatDateTime(item.endAt)}</p>}
+                          <p className="text-emerald-600 dark:text-emerald-400 font-semibold mt-1.5 flex items-center gap-1">
+                            ⏳ Remaining: {formatCountdown(item.endAt || item.startAt, syncedNowMs)}
+                          </p>
+                        </div>
+                      </div>
+                      
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(item.id)}
+                        className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30 rounded-xl transition-all"
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   );
