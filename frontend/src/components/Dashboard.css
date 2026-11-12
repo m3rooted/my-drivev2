@@ -1,0 +1,99 @@
+/* --- 1. THANH CUỘN SIÊU MẢNH --- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(148, 163, 184, 0.35);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(99, 102, 241, 0.65);
+}
+
+/* --- 2. NỀN GRADIENT MỀM CHO WORKSPACE --- */
+.workspace-bg {
+  background-color: #f8fafc;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(59, 130, 246, 0.08) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(99, 102, 241, 0.08) 0px, transparent 50%);
+}
+.dark .workspace-bg {
+  background-color: #020617;
+  background-image: 
+    radial-gradient(at 0% 0%, rgba(37, 99, 235, 0.14) 0px, transparent 50%),
+    radial-gradient(at 100% 0%, rgba(79, 70, 229, 0.14) 0px, transparent 50%);
+}
+
+/* --- 3. THẺ FILE / FOLDER HIỆU ỨNG KÍNH & NỔI 3D --- */
+.pro-item-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(226, 232, 240, 0.9);
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.pro-item-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(59, 130, 246, 0.5);
+  box-shadow: 0 12px 24px -8px rgba(59, 130, 246, 0.18);
+}
+
+.dark .pro-item-card {
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid rgba(51, 65, 85, 0.65);
+}
+.dark .pro-item-card:hover {
+  transform: translateY(-3px);
+  border-color: rgba(96, 165, 250, 0.5);
+  box-shadow: 0 12px 24px -8px rgba(37, 99, 235, 0.28);
+}
+
+/* --- 4. HIỆU ỨNG MỞ MODAL MƯỢT --- */
+@keyframes modalPopIn {
+  0% {
+    opacity: 0;
+    transform: translateY(16px) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.animate-modal-custom {
+  animation: modalPopIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* --- 5. HIỆU ỨNG PHÁT SÁNG CHO NÚT UPLOAD --- */
+@keyframes softPulse {
+  0%, 100% {
+    box-shadow: 0 4px 14px 0 rgba(59, 130, 246, 0.35);
+  }
+  50% {
+    box-shadow: 0 4px 22px 2px rgba(99, 102, 241, 0.6);
+  }
+}
+.btn-pulse-glow {
+  animation: softPulse 2.8s infinite ease-in-out;
+}
+/* --- PHÂN LOẠI MÀU SẮC ĐỊNH DẠNG TỆP (FILE TYPE BADGES & COLORS) --- */
+.file-badge-pdf { background: rgba(244, 63, 94, 0.12); color: #f43f5e; }
+.dark .file-badge-pdf { background: rgba(244, 63, 94, 0.2); color: #fb7185; }
+
+.file-badge-word { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+.dark .file-badge-word { background: rgba(59, 130, 246, 0.2); color: #60a5fa; }
+
+.file-badge-excel { background: rgba(16, 185, 129, 0.12); color: #10b981; }
+.dark .file-badge-excel { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+
+.file-badge-image { background: rgba(168, 85, 247, 0.12); color: #a855f7; }
+.dark .file-badge-image { background: rgba(168, 85, 247, 0.2); color: #c084fc; }
+
+.file-badge-archive { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
+.dark .file-badge-archive { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+
+.file-badge-default { background: rgba(100, 116, 139, 0.12); color: #64748b; }
+.dark .file-badge-default { background: rgba(100, 116, 139, 0.2); color: #94a3b8; }
