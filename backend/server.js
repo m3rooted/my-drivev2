@@ -4,6 +4,14 @@ const path = require('path');
 const fs = require('fs-extra');
 require('dotenv').config();
 
+if (!process.env.JWT_SECRET) {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET must be set in production');
+  }
+  process.env.JWT_SECRET = 'local-development-secret-change-before-deploying';
+  console.warn('JWT_SECRET is not set; using a development-only secret.');
+}
+
 const authRoutes = require('./routes/auth');
 const fileRoutes = require('./routes/files');
 const folderRoutes = require('./routes/folders');
@@ -31,6 +39,10 @@ app.use('/api/folders', folderRoutes);
 app.use('/api/notes', noteRoutes);
 
 // Health check
+app.get('/', (req, res) => {
+  res.json({ status: 'OK', message: 'Drive Clone API', health: '/api/health' });
+});
+
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', message: 'Google Drive Clone API is running' });
 });

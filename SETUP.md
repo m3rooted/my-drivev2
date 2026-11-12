@@ -26,13 +26,13 @@ npm start
 
 ### 4. Access the Application
 - Frontend: http://localhost:3000
-- Backend API: http://localhost:5001
+- Backend API: http://localhost:5000
 
 ## Environment Variables
 
 Create a `.env` file in the backend directory with:
 ```env
-PORT=5001
+PORT=5000
 JWT_SECRET=your-super-secret-jwt-key-change-this-in-production
 UPLOAD_DIR=uploads
 NODE_ENV=development

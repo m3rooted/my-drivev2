@@ -28,6 +28,7 @@ router.post('/register', async (req, res) => {
       user
     });
   } catch (error) {
+    console.error('Register error:', error);
     if (error.message === 'User already exists') {
       return res.status(400).json({ error: error.message });
     }
@@ -68,6 +69,7 @@ router.post('/login', async (req, res) => {
       user: userWithoutPassword
     });
   } catch (error) {
+    console.error('Login error:', error);
     res.status(500).json({ error: 'Failed to login' });
   }
 });
