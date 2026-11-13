@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { Mail, Lock, User, Cloud, ArrowRight, FolderOpen, FileText, CalendarDays, Sun, Moon } from 'lucide-react';
-import { getRegistrationValidationError } from '../services/validation';
+import { getInviteCodeValidationError, getRegistrationValidationError } from '../services/validation';
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -11,14 +11,16 @@ const Register = () => {
     email: '',
     password: '',
     confirmPassword: '',
+    inviteCode: '',
   });
   const [loading, setLoading] = useState(false);
   const [formError, setFormError] = useState('');
   const { register } = useAuth();
   const { theme, toggleTheme } = useTheme();
+  const inviteCodeRequired = process.env.REACT_APP_REGISTRATION_INVITE_REQUIRED === 'true';
 
   const handleChange = (e) => {
-    if (e.target.name === 'password' || e.target.name === 'confirmPassword') setFormError('');
+    if (['password', 'confirmPassword', 'inviteCode'].includes(e.target.name)) setFormError('');
     setFormData({
       ...formData,
       [e.target.name]: e.target.value,
@@ -27,7 +29,8 @@ const Register = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const validationError = getRegistrationValidationError(formData.password, formData.confirmPassword);
+    const validationError = getRegistrationValidationError(formData.password, formData.confirmPassword)
+      || getInviteCodeValidationError(formData.inviteCode, inviteCodeRequired);
     setFormError(validationError || '');
     if (validationError) {
       return;
@@ -185,6 +188,30 @@ const Register = () => {
                 />
               </div>
             </div>
+
+            {inviteCodeRequired && (
+              <div>
+                <label htmlFor="inviteCode" className="mb-1.5 block text-sm font-semibold text-slate-700 dark:text-slate-200">Invitation code</label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
+                    <Lock className="h-4 w-4" aria-hidden="true" />
+                  </div>
+                  <input
+                    id="inviteCode"
+                    name="inviteCode"
+                    type="password"
+                    autoComplete="one-time-code"
+                    aria-describedby={formError ? 'registration-error' : 'invite-code-help'}
+                    required
+                    className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
+                    placeholder="Enter the code you received"
+                    value={formData.inviteCode}
+                    onChange={handleChange}
+                  />
+                </div>
+                <p id="invite-code-help" className="mt-1.5 text-xs text-slate-500 dark:text-slate-400">Use the private invitation code shared with you.</p>
+              </div>
+            )}
 
           </div>
 

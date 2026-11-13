@@ -64,6 +64,52 @@ test('rejects malformed registration input before creating an account', async ()
   assert.equal(response.status, 400);
 });
 
+test('does not let one tester use another tester email invitation', async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalInvites = process.env.REGISTRATION_INVITES;
+  process.env.NODE_ENV = 'production';
+  process.env.REGISTRATION_INVITES = 'owner@example.test:owner-invite-code-secret-over-32-bytes,member@example.test:member-invite-code-secret-over-32-bytes';
+
+  try {
+    const response = await request('/api/auth/register', null, {
+      email: 'member@example.test',
+      name: 'Member User',
+      password: 'a sufficiently long password',
+      inviteCode: 'owner-invite-code-secret-over-32-bytes'
+    });
+
+    assert.equal(response.status, 403);
+  } finally {
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
+    if (originalInvites === undefined) delete process.env.REGISTRATION_INVITES;
+    else process.env.REGISTRATION_INVITES = originalInvites;
+  }
+});
+
+test('registers an approved production invitation', async () => {
+  const originalNodeEnv = process.env.NODE_ENV;
+  const originalInvites = process.env.REGISTRATION_INVITES;
+  process.env.NODE_ENV = 'production';
+  process.env.REGISTRATION_INVITES = 'invited@example.test:correct-invite-code-secret-over-32-bytes';
+
+  try {
+    const response = await request('/api/auth/register', null, {
+      email: 'invited@example.test',
+      name: 'Invited User',
+      password: 'a sufficiently long password',
+      inviteCode: 'correct-invite-code-secret-over-32-bytes'
+    });
+
+    assert.equal(response.status, 201);
+  } finally {
+    if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = originalNodeEnv;
+    if (originalInvites === undefined) delete process.env.REGISTRATION_INVITES;
+    else process.env.REGISTRATION_INVITES = originalInvites;
+  }
+});
+
 test('registers valid credentials and returns a token without a password hash', async () => {
   const response = await request('/api/auth/register', null, {
     email: 'new-user@example.test',

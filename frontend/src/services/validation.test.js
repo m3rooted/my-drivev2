@@ -1,4 +1,8 @@
-import { getPasswordConfirmationError, getRegistrationValidationError } from './validation';
+import {
+  getInviteCodeValidationError,
+  getPasswordConfirmationError,
+  getRegistrationValidationError
+} from './validation';
 
 test('returns an inline validation message when registration passwords differ', () => {
   expect(getPasswordConfirmationError('correct horse battery staple', 'different password'))
@@ -24,4 +28,11 @@ test('rejects registration passwords over the API UTF-8 byte limit', () => {
 test('reports mismatched passwords after checking password constraints', () => {
   expect(getRegistrationValidationError('twelve chars', 'another value'))
     .toBe('Passwords do not match.');
+});
+
+test('requires a non-empty invite code only when production signup requires one', () => {
+  expect(getInviteCodeValidationError('', true)).toBe('Enter your invitation code.');
+  expect(getInviteCodeValidationError('   ', true)).toBe('Enter your invitation code.');
+  expect(getInviteCodeValidationError('invite-secret', true)).toBeNull();
+  expect(getInviteCodeValidationError('', false)).toBeNull();
 });

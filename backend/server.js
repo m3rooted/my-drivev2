@@ -3,7 +3,9 @@ const fs = require('fs-extra');
 const { isIP } = require('node:net');
 require('dotenv').config();
 
-const HOST = process.env.HOST || '127.0.0.1';
+const { validateProductionConfig } = require('./utils/runtimeConfig');
+
+const HOST = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '127.0.0.1');
 const isLoopbackHost = HOST === '::1' || (isIP(HOST) === 4 && HOST.startsWith('127.'));
 
 if (!process.env.JWT_SECRET) {
@@ -24,6 +26,8 @@ if (Buffer.byteLength(process.env.JWT_SECRET, 'utf8') < 32) {
 if (process.env.NODE_ENV === 'production' && /replace-with|local-development/i.test(process.env.JWT_SECRET)) {
   throw new Error('Replace the example JWT_SECRET before starting in production');
 }
+
+validateProductionConfig(process.env);
 
 const createApp = require('./app');
 const UserModel = require('./models/User');

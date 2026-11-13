@@ -2,6 +2,7 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const { isRegistrationAllowed, isRegistrationInviteValid } = require('../utils/runtimeConfig');
 const {
   isRecord,
   isValidEmail,
@@ -22,6 +23,16 @@ router.post('/register', async (req, res) => {
 
     if (!isRecord(body) || !isValidEmail(email) || !name || !isValidPassword(password)) {
       return res.status(400).json({ error: 'Enter a valid name, email, and password of at least 12 characters' });
+    }
+
+    if (
+      process.env.NODE_ENV === 'production'
+      && (
+        !isRegistrationAllowed(email, process.env.REGISTRATION_INVITES)
+        || !isRegistrationInviteValid(email, body.inviteCode, process.env.REGISTRATION_INVITES)
+      )
+    ) {
+      return res.status(403).json({ error: 'Registration is closed or the invitation is invalid' });
     }
 
     const user = await User.create({ email, password, name });

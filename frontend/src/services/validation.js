@@ -2,6 +2,12 @@ export const getPasswordConfirmationError = (password, confirmation) => {
   return password === confirmation ? null : 'Passwords do not match.';
 };
 
+export const getInviteCodeValidationError = (inviteCode, isRequired) => {
+  return isRequired && (typeof inviteCode !== 'string' || !inviteCode.trim())
+    ? 'Enter your invitation code.'
+    : null;
+};
+
 const getUtf8ByteLength = (value) => {
   let byteLength = 0;
   for (const character of value) {

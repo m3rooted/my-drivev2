@@ -20,4 +20,11 @@ COPY package.json package-lock.json ./
 COPY public ./public
 COPY src ./src
 COPY tailwind.config.js postcss.config.js ./
+ARG REACT_APP_REGISTRATION_INVITE_REQUIRED=false
+ENV REACT_APP_REGISTRATION_INVITE_REQUIRED=$REACT_APP_REGISTRATION_INVITE_REQUIRED
 RUN npm run build
+
+FROM caddy:2.11.9-alpine AS production
+COPY --from=build /app/build /srv
+COPY Caddyfile /etc/caddy/Caddyfile
+EXPOSE 80 443 443/udp
