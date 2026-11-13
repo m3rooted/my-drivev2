@@ -3,6 +3,7 @@ import './Dashboard.css';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { filesAPI, foldersAPI } from '../services/api';
+import { canCreateShareLink, createDashboardActions, getDisplayedFileRole, getDriveNavigationTarget } from '../services/dashboardActions';
 import { useDropzone } from 'react-dropzone';
 import toast from 'react-hot-toast';
 import { extractDocxText } from '../services/docxPreview';
@@ -26,7 +27,6 @@ import {
   Cloud,
   FileText,
   FileSpreadsheet,
-  FileCode,
   Image as ImageIcon,
   FileArchive,
   ChevronRight,
@@ -43,6 +43,7 @@ import {
 import NotesPlanner from './NotesPlanner';
 
 const Dashboard = () => {
+  const dashboardActions = createDashboardActions({ filesAPI, foldersAPI });
   const { user, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const [files, setFiles] = useState([]);
@@ -50,24 +51,17 @@ const Dashboard = () => {
   const [trashFiles, setTrashFiles] = useState([]);
   
   // --- STATE YÊU THÍCH (STARRED) ---
-  const [starredIds, setStarredIds] = useState(() => {
-    try {
-      const saved = localStorage.getItem('drive_starred_ids');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+  const [starredIds, setStarredIds] = useState([]);
+  const [starredFiles, setStarredFiles] = useState([]);
+  const [starredFolders, setStarredFolders] = useState([]);
+  const [recentFiles, setRecentFiles] = useState([]);
+  const [storageStats, setStorageStats] = useState({
+    used: 0,
+    quota: 15 * 1024 * 1024 * 1024,
+    available: 15 * 1024 * 1024 * 1024
   });
-
-  // --- STATE FILE GẦN ĐÂY (RECENT FILES) ---
-  const [recentFileIds, setRecentFileIds] = useState(() => {
-    try {
-      const saved = localStorage.getItem('drive_recent_ids');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [trashLoading, setTrashLoading] = useState(false);
+  const [trashError, setTrashError] = useState(false);
 
   // --- STATE PHÂN QUYỀN TRUY CẬP (PERMISSIONS) ---
   const [filePermissions, setFilePermissions] = useState(() => {
@@ -118,20 +112,6 @@ const Dashboard = () => {
     };
   }, [activeMenuId]);
 
-  // Lưu starredIds vào localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('drive_starred_ids', JSON.stringify(starredIds));
-    } catch (e) {}
-  }, [starredIds]);
-
-  // Lưu recentFileIds vào localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('drive_recent_ids', JSON.stringify(recentFileIds));
-    } catch (e) {}
-  }, [recentFileIds]);
-
   useEffect(() => {
     try { localStorage.setItem('drive_file_permissions', JSON.stringify(filePermissions)); } catch (e) {}
   }, [filePermissions]);
@@ -139,19 +119,15 @@ const Dashboard = () => {
   const loadFiles = useCallback(async () => {
     setLoading(true);
     try {
-      const savedDeletedIds = JSON.parse(localStorage.getItem('drive_deleted_ids') || '[]');
-
       if (driveScope === 'shared' || activeTab === 'shared') {
         const response = await filesAPI.getSharedFiles();
-        const validFiles = (response.data.files || []).filter(f => !savedDeletedIds.includes(f.id));
+        const validFiles = response.data.files || [];
         setFiles(validFiles);
         setFolders([]);
       } else {
         const response = await filesAPI.getFiles(currentFolder);
-        const validFiles = (response.data.files || []).filter(f => !savedDeletedIds.includes(f.id));
-        const validFolders = (response.data.folders || []).filter(f => !savedDeletedIds.includes(f.id));
-        setFiles(validFiles);
-        setFolders(validFolders);
+        setFiles(response.data.files || []);
+        setFolders(response.data.folders || []);
       }
     } catch (error) {
       toast.error('Failed to load files');
@@ -219,6 +195,10 @@ const Dashboard = () => {
     if (activeTab === 'starred') loadFavorites();
   }, [activeTab, loadTrash, loadRecentFiles, loadFavorites]);
 
+  useEffect(() => {
+    loadFavorites();
+  }, [loadFavorites]);
+
   const onDrop = async (acceptedFiles) => {
     for (const file of acceptedFiles) {
       const formData = new FormData();
@@ -239,11 +219,16 @@ const Dashboard = () => {
   const { getRootProps, getInputProps, open } = useDropzone({ onDrop, multiple: true, noClick: true, noKeyboard: true });
 
   // --- GHI NHẬN FILE VỪA TRUY CẬP (RECENT) ---
-  const trackRecentFile = (fileId) => {
-    setRecentFileIds((prev) => {
-      const filtered = prev.filter((id) => id !== fileId);
-      return [fileId, ...filtered].slice(0, 20);
-    });
+  const trackRecentFile = async (fileId) => {
+    try {
+      const response = await filesAPI.markRecent(fileId);
+      const recentFile = response.data.file;
+      if (recentFile) {
+        setRecentFiles((previous) => [recentFile, ...previous.filter((file) => file.id !== fileId)]);
+      }
+    } catch {
+      toast.error('Failed to update recent files');
+    }
   };
 
   // --- HÀM NHẬN DIỆN ĐỊNH DẠNG TỆP ĐỂ TRẢ VỀ ICON VÀ MÀU SẮC RIÊNG ---
@@ -267,12 +252,22 @@ const Dashboard = () => {
     return { icon: <File size={18} />, badgeClass: 'file-badge-default', label: ext ? ext.toUpperCase() : 'FILE' };
   };
 
-  const handleCopyShareLink = (file) => {
-    trackRecentFile(file.id);
-    const shareUrl = `${window.location.origin}/share?fileId=${file.id}`;
-    navigator.clipboard.writeText(shareUrl);
-    toast.success(`Đã sao chép liên kết chia sẻ cho "${file.originalName}"!`);
-    setActiveMenuId(null);
+  const handleCopyShareLink = async (file) => {
+    if (!canCreateShareLink(file)) {
+      toast.error('Chỉ chủ sở hữu mới có thể tạo liên kết chia sẻ.');
+      return;
+    }
+
+    try {
+      await trackRecentFile(file.id);
+      const response = await filesAPI.createShareLink(file.id, { permission: 'viewer' });
+      await navigator.clipboard.writeText(response.data.url);
+      toast.success('Share link copied');
+    } catch {
+      toast.error('Failed to copy share link');
+    } finally {
+      setActiveMenuId(null);
+    }
   };
 
   const handlePreviewFile = async (file) => {
@@ -318,51 +313,43 @@ const Dashboard = () => {
 
   const toggleStar = async (e, id, itemType = 'file') => {
     e.stopPropagation();
-    setStarredIds((prev) => {
-      if (prev.includes(id)) {
-        toast.success('Removed from starred');
-        return prev.filter((item) => item !== id);
-      } else {
-        toast.success('Added to starred');
-        return [...prev, id];
-      }
-    });
-  };
-
-  const handleMoveToTrash = (item, type = 'file') => {
-    if (type === 'file') {
-      // 1. Lọc bỏ file khỏi danh sách hiển thị hiện tại
-      setFiles((prev) => prev.filter((f) => f.id !== item.id));
-      // 2. Thêm vào danh sách Thùng rác (Trash)
-      setTrashFiles((prev) => [...prev, { ...item, itemType: 'file', deletedAt: new Date() }]);
-      // 3. Xóa khỏi danh sách Recent nếu có
-      setRecentFileIds((prev) => prev.filter((id) => id !== item.id));
-    } else {
-      setFolders((prev) => prev.filter((f) => f.id !== item.id));
-      setTrashFiles((prev) => [...prev, { ...item, itemType: 'folder', deletedAt: new Date() }]);
+    try {
+      if (itemType === 'folder') await foldersAPI.toggleFavorite(id);
+      else await filesAPI.toggleFavorite(id);
+      await loadFavorites();
+      toast.success('Favorites updated');
+    } catch {
+      toast.error('Failed to update favorites');
     }
-
-    // Xóa khỏi danh sách Starred và đóng menu tùy chọn
-    setStarredIds((prev) => prev.filter((id) => id !== item.id));
-    setActiveMenuId(null);
-    if (selectedItemForInfo?.id === item.id) setSelectedItemForInfo(null);
-    
-    toast.success(`Đã chuyển vào thùng rác`);
   };
 
-  const handleRestoreFromTrash = (item) => {
-    setTrashFiles((prev) => prev.filter((i) => i.id !== item.id));
-    if (item.itemType === 'file') setFiles((prev) => [...prev, item]);
-    else setFolders((prev) => [...prev, item]);
-    toast.success(`Restored "${item.originalName || item.name}"`);
+  const handleMoveToTrash = async (item, type = 'file') => {
+    try {
+      await dashboardActions.moveToTrash({ ...item, itemType: type });
+      setActiveMenuId(null);
+      if (selectedItemForInfo?.id === item.id) setSelectedItemForInfo(null);
+      await Promise.all([loadFiles(), loadTrash(), loadFavorites(), loadRecentFiles(), loadStorageStats()]);
+      toast.success('Moved to trash');
+    } catch {
+      toast.error('Failed to move item to trash');
+    }
+  };
+
+  const handleRestoreFromTrash = async (item) => {
+    try {
+      await dashboardActions.restore(item);
+      await Promise.all([loadFiles(), loadTrash(), loadFavorites(), loadRecentFiles(), loadStorageStats()]);
+      toast.success(`Restored "${item.originalName || item.name}"`);
+    } catch {
+      toast.error('Failed to restore item');
+    }
   };
 
   const handleDeletePermanently = async (item) => {
     if (!window.confirm(`Xóa vĩnh viễn "${item.originalName || item.name}"?`)) return;
     try {
-      if (item.itemType === 'file') await filesAPI.deleteFile(item.id);
-      else await foldersAPI.deleteFolder(item.id);
-      setTrashFiles((prev) => prev.filter((i) => i.id !== item.id));
+      await dashboardActions.deletePermanently(item);
+      await Promise.all([loadTrash(), loadFiles(), loadStorageStats()]);
       toast.success('Permanently deleted');
     } catch (error) {
       toast.error('Failed to delete');
@@ -371,14 +358,18 @@ const Dashboard = () => {
 
   const handleEmptyTrash = async () => {
     if (!window.confirm('Empty trash completely?')) return;
-    for (const item of trashFiles) {
+    const failedItems = [];
+    for (const item of [...trashFiles]) {
       try {
-        if (item.itemType === 'file') await filesAPI.deleteFile(item.id);
-        else await foldersAPI.deleteFolder(item.id);
-      } catch (e) {}
+        await dashboardActions.deletePermanently(item);
+      } catch {
+        failedItems.push(item);
+      }
     }
-    setTrashFiles([]);
-    toast.success('Trash emptied');
+    setTrashFiles(failedItems);
+    await Promise.all([loadFiles(), loadTrash(), loadFavorites(), loadRecentFiles(), loadStorageStats()]);
+    if (failedItems.length > 0) toast.error(`${failedItems.length} item(s) could not be deleted`);
+    else toast.success('Trash emptied');
   };
 
   const handleCreateFolder = async () => {
@@ -434,9 +425,7 @@ const Dashboard = () => {
     }
   };
 
-  const getFileRole = (fileId) => {
-    return filePermissions[fileId]?.role || 'editor';
-  };
+  const getFileRole = (file) => getDisplayedFileRole(file, filePermissions);
 
   const formatFileSize = (bytes) => {
     if (!bytes || bytes === 0) return '0 Bytes';
@@ -743,7 +732,7 @@ const Dashboard = () => {
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Storage</span>
             </div>
             <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-blue-600 h-full rounded-full transition-all duration-500" style={{ width: `${Math.min((totalBytesUsed / (1024 * 1024 * 500)) * 100, 100)}%` }}></div>
+                  <div className="bg-blue-600 h-full rounded-full transition-all duration-500" style={{ width: `${storagePercent}%` }}></div>
             </div>
             <div className="text-[10px] text-slate-400 flex justify-between">
               <span>{formatFileSize(storageStats.used)} used</span>
@@ -776,7 +765,16 @@ const Dashboard = () => {
                 )}
               </div>
 
-              {filteredTrash.length === 0 ? (
+              {trashLoading ? (
+                <div role="status" className="text-center py-16 text-sm text-slate-500">Loading trash…</div>
+              ) : trashError ? (
+                <div className="text-center py-16">
+                  <p className="mb-3 text-sm text-rose-600">Could not load trash.</p>
+                  <button type="button" onClick={loadTrash} className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-semibold dark:border-slate-700">
+                    Try again
+                  </button>
+                </div>
+              ) : filteredTrash.length === 0 ? (
                 <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
                   <div className="w-16 h-16 bg-rose-500/10 text-rose-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
                     <Trash2 size={28} />
@@ -871,14 +869,15 @@ const Dashboard = () => {
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">Starred Files</h3>
                       <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5' : 'space-y-2'}>
-                        {starredFiles.map((file) => (
+                        {visibleStarredFiles.map((file) => (
                           <div
                             key={file.id}
                             onClick={() => {
                               trackRecentFile(file.id);
                               setActiveTab('drive');
-                              setDriveScope('my-drive');
-                              setCurrentFolder(file.folderId || null);
+                              const target = getDriveNavigationTarget(file);
+                              setDriveScope(target.driveScope);
+                              setCurrentFolder(target.currentFolder);
                             }}
                             className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs hover:shadow-md transition-all group relative p-3.5 cursor-pointer ${
                               viewMode === 'list' ? 'flex items-center justify-between' : 'flex flex-col justify-between h-24'
@@ -1084,7 +1083,7 @@ const Dashboard = () => {
                     <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5' : 'space-y-2'}>
                       {filteredFiles.map((file) => {
                         const isStarred = starredIds.includes(file.id);
-                        const role = getFileRole(file.id);
+                        const role = getFileRole(file);
                         const visual = getFileVisualInfo(file.originalName);
                         return (
                           <div
@@ -1137,12 +1136,14 @@ const Dashboard = () => {
                                   >
                                     <Eye size={14} /> Preview
                                   </button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleCopyShareLink(file); }}
-                                    className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-emerald-600 dark:text-emerald-400"
-                                  >
-                                    <Link2 size={14} /> Sao chép liên kết
-                                  </button>
+                                  {canCreateShareLink(file) && (
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleCopyShareLink(file); }}
+                                      className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-emerald-600 dark:text-emerald-400"
+                                    >
+                                      <Link2 size={14} /> Sao chép liên kết
+                                    </button>
+                                  )}
                                   <button
                                     onClick={(e) => { e.stopPropagation(); trackRecentFile(file.id); handleDownload(file); setActiveMenuId(null); }}
                                     className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2"
@@ -1235,19 +1236,21 @@ const Dashboard = () => {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400 font-medium">Access Role</span>
-                  <span className="font-semibold uppercase text-indigo-500">{getFileRole(selectedItemForInfo.id)}</span>
+                  <span className="font-semibold uppercase text-indigo-500">{getFileRole(selectedItemForInfo)}</span>
                 </div>
               </div>
             </div>
 
             {selectedItemForInfo.type === 'file' && (
               <div className="space-y-2">
-                <button
-                  onClick={() => handleCopyShareLink(selectedItemForInfo)}
-                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-semibold shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2"
-                >
-                  <Link2 size={15} /> Sao chép liên kết
-                </button>
+                {canCreateShareLink(selectedItemForInfo) && (
+                  <button
+                    onClick={() => handleCopyShareLink(selectedItemForInfo)}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-semibold shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2"
+                  >
+                    <Link2 size={15} /> Sao chép liên kết
+                  </button>
+                )}
                 <button
                   onClick={() => handlePreviewFile(selectedItemForInfo)}
                   className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-semibold shadow-md shadow-indigo-500/20 flex items-center justify-center gap-2"
@@ -1277,12 +1280,14 @@ const Dashboard = () => {
                 <p className="text-[10px] text-slate-400 mt-0.5">Xem trước tệp trực tiếp trên trình duyệt</p>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => handleCopyShareLink(previewFile)}
-                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5"
-                >
-                  <Link2 size={14} /> Sao chép link
-                </button>
+                {canCreateShareLink(previewFile) && (
+                  <button
+                    onClick={() => handleCopyShareLink(previewFile)}
+                    className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5"
+                  >
+                    <Link2 size={14} /> Sao chép link
+                  </button>
+                )}
                 <button
                   onClick={() => handleDownload(previewFile)}
                   className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5"

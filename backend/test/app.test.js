@@ -1,5 +1,5 @@
 process.env.JWT_SECRET = 'test-only-secret-with-enough-entropy';
-process.env.CORS_ORIGINS = 'http://localhost:3001';
+delete process.env.CORS_ORIGINS;
 
 const assert = require('node:assert/strict');
 const { once } = require('node:events');
@@ -44,10 +44,19 @@ test('sets security headers and hides the Express fingerprint', async () => {
   assert.equal(response.headers.get('x-powered-by'), null);
 });
 
-test('allows only configured browser origins', async () => {
-  const allowed = await fetch(`${baseUrl}/api/health`, { headers: { Origin: 'http://localhost:3001' } });
+test('allows the local demo frontend origin and rejects unrelated origins', async () => {
+  const allowed = await fetch(`${baseUrl}/api/health`, { headers: { Origin: 'http://127.0.0.1:3002' } });
   const rejected = await fetch(`${baseUrl}/api/health`, { headers: { Origin: 'https://attacker.example' } });
+  const preflight = await fetch(`${baseUrl}/api/files/recent`, {
+    method: 'OPTIONS',
+    headers: {
+      Origin: 'http://127.0.0.1:3002',
+      'Access-Control-Request-Method': 'GET'
+    }
+  });
 
-  assert.equal(allowed.headers.get('access-control-allow-origin'), 'http://localhost:3001');
+  assert.equal(allowed.headers.get('access-control-allow-origin'), 'http://127.0.0.1:3002');
   assert.equal(rejected.headers.get('access-control-allow-origin'), null);
+  assert.equal(preflight.status, 204);
+  assert.equal(preflight.headers.get('access-control-allow-origin'), 'http://127.0.0.1:3002');
 });

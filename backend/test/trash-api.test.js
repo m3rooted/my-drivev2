@@ -166,6 +166,10 @@ test('stores recent and favorite state independently for each shared file user',
     method: 'POST', headers: { Authorization: `Bearer ${collaboratorToken}` }
   });
   assert.equal(collaboratorFavorite.status, 200);
+  const collaboratorFavoriteFile = (await collaboratorFavorite.json()).file;
+  assert.equal(collaboratorFavoriteFile.isShared, true);
+  assert.equal(collaboratorFavoriteFile.sharedPermission, 'viewer');
+  assert.equal('userId' in collaboratorFavoriteFile, false);
 
   const collaboratorRecent = await fetch(`${baseUrl}/api/files/${file.id}/recent`, {
     method: 'POST', headers: { Authorization: `Bearer ${collaboratorToken}` }
@@ -177,13 +181,18 @@ test('stores recent and favorite state independently for each shared file user',
   const collaboratorFavorites = await fetch(`${baseUrl}/api/files/favorites`, {
     headers: { Authorization: `Bearer ${collaboratorToken}` }
   });
-  assert.ok((await ownerFavorites.json()).files.some((entry) => entry.id === file.id));
-  assert.ok((await collaboratorFavorites.json()).files.some((entry) => entry.id === file.id));
+  const ownerFavoriteFile = (await ownerFavorites.json()).files.find((entry) => entry.id === file.id);
+  const collaboratorFavoriteEntry = (await collaboratorFavorites.json()).files.find((entry) => entry.id === file.id);
+  assert.equal(ownerFavoriteFile.isShared, false);
+  assert.equal(collaboratorFavoriteEntry.isShared, true);
+  assert.equal(collaboratorFavoriteEntry.sharedPermission, 'viewer');
 
   const collaboratorRecents = await fetch(`${baseUrl}/api/files/recent`, {
     headers: { Authorization: `Bearer ${collaboratorToken}` }
   });
   const recentFile = (await collaboratorRecents.json()).files.find((entry) => entry.id === file.id);
   assert.equal(new Date(recentFile.recentAt).getTime(), new Date(FileModel.getRecentAtForUser(file, collaborator.id)).getTime());
+  assert.equal(recentFile.isShared, true);
+  assert.equal(recentFile.sharedPermission, 'viewer');
   assert.equal('userId' in recentFile, false);
 });

@@ -25,11 +25,20 @@ const serializeFile = (file, extra = {}) => ({
   ...extra
 });
 
-const serializeFileForUser = (file, userId, extra = {}) => serializeFile(file, {
-  favorite: FileModel.isFavoriteForUser(file, userId),
-  recentAt: FileModel.getRecentAtForUser(file, userId),
-  ...extra
-});
+const serializeFileForUser = (file, userId, extra = {}) => {
+  const isShared = file.userId !== userId;
+  const share = isShared
+    ? (file.sharedWith || []).find((entry) => entry.userId === userId)
+    : null;
+
+  return serializeFile(file, {
+    favorite: FileModel.isFavoriteForUser(file, userId),
+    recentAt: FileModel.getRecentAtForUser(file, userId),
+    isShared,
+    sharedPermission: share?.permission || (isShared ? 'viewer' : null),
+    ...extra
+  });
+};
 
 const serializeFolder = (folder) => ({
   id: folder.id,

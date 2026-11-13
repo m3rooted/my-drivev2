@@ -56,6 +56,7 @@ export const filesAPI = {
   renameFile: (id, name) => api.patch(`/files/${id}/rename`, { name }),
   getFileInfo: (id) => api.get(`/files/${id}`),
   shareFile: (id, payload) => api.post(`/files/${id}/share`, payload),
+  createShareLink: (id, payload) => api.post(`/files/${id}/share-link`, payload),
   removeShare: (id, sharedUserId) => api.delete(`/files/${id}/share/${sharedUserId}`),
 };
 
