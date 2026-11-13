@@ -19,8 +19,8 @@ html {
 body {
   margin: 0;
   font-family: 'Aptos', 'Segoe UI', sans-serif;
-  background: #eef3f7;
-  color: #162b36;
+  background: #f0f4f5;
+  color: #182a3c;
 }
 
 button,
@@ -31,17 +31,19 @@ select {
 }
 
 :where(button, a, input, textarea, select, [role='button']):focus-visible {
-  outline: 3px solid #536ddb;
+  outline: 3px solid #557a9e;
   outline-offset: 3px;
 }
 
 ::selection {
-  background: #167c80;
+  background: #34786f;
   color: #fff;
 }
 
 .dark {
   color-scheme: dark;
+  background-color: #0f1728;
+  color: #e6edf4;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -54,7 +54,7 @@ const startServer = async () => {
 
 if (require.main === module) {
   startServer().catch((error) => {
-    console.error('Failed to start Drive Clone API:', error.message);
+    console.error('Failed to start CloudNest API:', error.message);
     process.exitCode = 1;
   });
 }

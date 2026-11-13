@@ -55,11 +55,11 @@ const createApp = () => {
   app.use('/api/notes', noteRoutes);
 
   app.get('/', (req, res) => {
-    res.json({ status: 'OK', message: 'Drive Clone API', health: '/api/health' });
+    res.json({ status: 'OK', message: 'CloudNest API', health: '/api/health' });
   });
 
   app.get('/api/health', (req, res) => {
-    res.json({ status: 'OK', message: 'Google Drive Clone API is running' });
+    res.json({ status: 'OK', message: 'CloudNest API is running' });
   });
 
   app.use((error, req, res, next) => {

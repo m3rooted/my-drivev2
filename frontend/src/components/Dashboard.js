@@ -500,18 +500,16 @@ const Dashboard = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-300 font-sans flex flex-col">
+    <div className="min-h-screen bg-slate-50 dark:bg-archive-canvas text-slate-900 dark:text-slate-100 transition-colors duration-300 font-sans flex flex-col">
       
       {/* Top Header */}
-      <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-200/80 dark:border-slate-800 shadow-2xs">
+      <header className="bg-white/80 dark:bg-archive-surface/95 backdrop-blur-md sticky top-0 z-50 border-b border-slate-200/80 dark:border-archive-border shadow-2xs">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-archive-teal rounded-2xl flex items-center justify-center text-white">
-                <Cloud className="h-5 w-5" />
-              </div>
+              <img src="/cloudnest-logo.svg" alt="" aria-hidden="true" className="h-10 w-10 object-contain" />
               <div>
-                <span className="text-lg font-bold text-archive-ink dark:text-white">Drive</span>
+                <span className="text-lg font-bold text-archive-ink dark:text-white">CloudNest</span>
                 <span className="block text-[10px] text-slate-400 font-medium">Your file archive</span>
               </div>
             </div>
@@ -537,7 +535,7 @@ const Dashboard = () => {
                   {theme === 'dark' ? (
                     <Sun size={17} className="text-amber-400 transform rotate-90 scale-110" />
                   ) : (
-                    <Moon size={17} className="text-blue-500 drop-shadow-[0_0_8px_rgba(59,130,246,0.6)] transform -rotate-12 scale-110" />
+                    <Moon size={17} className="text-blue-500 drop-shadow-[0_0_8px_rgba(110,145,178,0.35)] transform -rotate-12 scale-110" />
                   )}
                 </button>
 
@@ -616,13 +614,13 @@ const Dashboard = () => {
       <div className="flex flex-1 overflow-hidden">
         
         {/* Sidebar */}
-        <aside className="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-4 hidden md:flex flex-col justify-between shrink-0">
+        <aside className="w-64 bg-white dark:bg-archive-surface border-r border-slate-200 dark:border-archive-border p-4 hidden md:flex flex-col justify-between shrink-0">
           <div className="space-y-6">
             {driveScope === 'my-drive' && activeTab === 'drive' && (
               <div className="relative group">
                 <div {...getRootProps()} className="w-full">
                   <input {...getInputProps()} />
-                  <button className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl font-semibold text-sm shadow-lg shadow-blue-500/25 transition-all">
+                  <button type="button" onClick={open} className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-archive-teal hover:bg-archive-teal/90 text-white rounded-2xl font-semibold text-sm shadow-lg shadow-archive-teal/20 transition-colors">
                     <Plus size={18} />
                     New Upload
                   </button>
@@ -635,7 +633,7 @@ const Dashboard = () => {
                 onClick={() => { setActiveTab('drive'); setDriveScope('my-drive'); setCurrentFolder(null); }}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
                   activeTab === 'drive' && driveScope === 'my-drive'
-                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
+                    ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300'
                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
@@ -647,7 +645,7 @@ const Dashboard = () => {
                 onClick={() => { setActiveTab('recent'); setCurrentFolder(null); }}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
                   activeTab === 'recent'
-                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
+                    ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300'
                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
@@ -685,7 +683,7 @@ const Dashboard = () => {
                 onClick={() => { setActiveTab('drive'); setDriveScope('shared'); setCurrentFolder(null); }}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
                   activeTab === 'drive' && driveScope === 'shared'
-                    ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'
+                    ? 'bg-blue-50 dark:bg-blue-950/50 text-blue-700 dark:text-blue-300'
                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
@@ -697,7 +695,7 @@ const Dashboard = () => {
                 onClick={() => setActiveTab('notes')}
                 className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
                   activeTab === 'notes'
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+                    ? 'bg-archive-teal/10 dark:bg-archive-teal/20 text-archive-teal dark:text-archive-mint'
                     : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
                 }`}
               >
@@ -732,7 +730,7 @@ const Dashboard = () => {
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Storage</span>
             </div>
             <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-                  <div className="bg-blue-600 h-full rounded-full transition-all duration-500" style={{ width: `${storagePercent}%` }}></div>
+                  <div className="bg-archive-blue h-full rounded-full transition-all duration-500" style={{ width: `${storagePercent}%` }}></div>
             </div>
             <div className="text-[10px] text-slate-400 flex justify-between">
               <span>{formatFileSize(storageStats.used)} used</span>
@@ -1236,7 +1234,7 @@ const Dashboard = () => {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-slate-400 font-medium">Access Role</span>
-                  <span className="font-semibold uppercase text-indigo-500">{getFileRole(selectedItemForInfo)}</span>
+                  <span className="font-semibold uppercase text-blue-600 dark:text-blue-300">{getFileRole(selectedItemForInfo)}</span>
                 </div>
               </div>
             </div>
@@ -1253,7 +1251,7 @@ const Dashboard = () => {
                 )}
                 <button
                   onClick={() => handlePreviewFile(selectedItemForInfo)}
-                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-semibold shadow-md shadow-indigo-500/20 flex items-center justify-center gap-2"
+                  className="w-full py-2.5 bg-archive-blue hover:bg-blue-700 text-white rounded-2xl text-xs font-semibold shadow-md shadow-blue-500/15 flex items-center justify-center gap-2"
                 >
                   <Eye size={15} /> Preview File
                 </button>
@@ -1367,7 +1365,7 @@ const Dashboard = () => {
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-md border border-slate-200 dark:border-slate-800 shadow-2xl animate-modal-custom">
             <h3 className="text-base font-bold mb-1 flex items-center gap-2">
-              <Shield size={18} className="text-indigo-500" /> Share & Access Roles
+              <Shield size={18} className="text-blue-600 dark:text-blue-300" /> Share & Access Roles
             </h3>
             <p className="text-xs text-slate-400 mb-4 truncate">{selectedFileToShare?.originalName}</p>
 
@@ -1407,7 +1405,7 @@ const Dashboard = () => {
               <button
                 onClick={handleShareFile}
                 disabled={sharing}
-                className="px-4 py-2 text-xs font-semibold bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 shadow-md shadow-indigo-500/20 disabled:opacity-60"
+                className="px-4 py-2 text-xs font-semibold bg-archive-teal text-white rounded-xl hover:bg-archive-teal/90 shadow-md shadow-archive-teal/15 disabled:opacity-60"
               >
                 {sharing ? 'Saving...' : 'Save Permissions'}
               </button>

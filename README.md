@@ -1,6 +1,6 @@
-# My Drive v2
+# CloudNest
 
-A local file-drive demo built with React, Express, and JSON-file metadata storage.
+A file storage and planning app built with React, Express, and JSON-file metadata storage.
 
 ## Requirements
 
