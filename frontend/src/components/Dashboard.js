@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import './Dashboard.css';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { filesAPI, foldersAPI } from '../services/api';
@@ -24,6 +25,10 @@ import {
   Sparkles,
   Cloud,
   FileText,
+  FileSpreadsheet,
+  FileCode,
+  Image as ImageIcon,
+  FileArchive,
   ChevronRight,
   MoreVertical,
   Info,
@@ -32,7 +37,8 @@ import {
   Star,
   Clock,
   Shield,
-  Eye
+  Eye,
+  Link2
 } from 'lucide-react';
 import NotesPlanner from './NotesPlanner';
 
@@ -44,15 +50,25 @@ const Dashboard = () => {
   const [trashFiles, setTrashFiles] = useState([]);
   
   // --- STATE YÊU THÍCH (STARRED) ---
-  const [starredIds, setStarredIds] = useState([]);
-  const [starredFiles, setStarredFiles] = useState([]);
-  const [starredFolders, setStarredFolders] = useState([]);
-  const [recentFiles, setRecentFiles] = useState([]);
-  const [storageStats, setStorageStats] = useState({ used: 0, quota: 15 * 1024 * 1024 * 1024 });
-  const [trashLoading, setTrashLoading] = useState(false);
-  const [trashError, setTrashError] = useState(false);
+  const [starredIds, setStarredIds] = useState(() => {
+    try {
+      const saved = localStorage.getItem('drive_starred_ids');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
 
   // --- STATE FILE GẦN ĐÂY (RECENT FILES) ---
+  const [recentFileIds, setRecentFileIds] = useState(() => {
+    try {
+      const saved = localStorage.getItem('drive_recent_ids');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
   // --- STATE PHÂN QUYỀN TRUY CẬP (PERMISSIONS) ---
   const [filePermissions, setFilePermissions] = useState(() => {
     try {
@@ -63,7 +79,6 @@ const Dashboard = () => {
     }
   });
 
-  // --- STATE XEM TRƯỚC TỆP (PREVIEW) ---
   const [previewFile, setPreviewFile] = useState(null);
   const [previewContent, setPreviewContent] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
@@ -80,7 +95,7 @@ const Dashboard = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showNewFolderModal, setShowNewFolderModal] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
-  const [activeTab, setActiveTab] = useState('drive'); // 'drive' | 'starred' | 'recent' | 'notes' | 'trash' | 'shared'
+  const [activeTab, setActiveTab] = useState('drive'); 
   const [driveScope, setDriveScope] = useState('my-drive');
   const [showShareModal, setShowShareModal] = useState(false);
   const [selectedFileToShare, setSelectedFileToShare] = useState(null);
@@ -91,7 +106,6 @@ const Dashboard = () => {
   const [activeMenuId, setActiveMenuId] = useState(null);
   const [selectedItemForInfo, setSelectedItemForInfo] = useState(null);
 
-  // --- ĐÓNG MENU 3 CHẤM KHI BẤM RA NGOÀI KHOẢNG TRẮNG ---
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (activeMenuId !== null && !event.target.closest('.relative')) {
@@ -105,29 +119,39 @@ const Dashboard = () => {
   }, [activeMenuId]);
 
   // Lưu starredIds vào localStorage
-  // Favorite state is loaded from the durable API.
-
-  // Lưu recentFileIds vào localStorage
-  // Recent state is loaded from the durable API.
-
-  // Lưu filePermissions vào localStorage
   useEffect(() => {
     try {
-      localStorage.setItem('drive_file_permissions', JSON.stringify(filePermissions));
+      localStorage.setItem('drive_starred_ids', JSON.stringify(starredIds));
     } catch (e) {}
+  }, [starredIds]);
+
+  // Lưu recentFileIds vào localStorage
+  useEffect(() => {
+    try {
+      localStorage.setItem('drive_recent_ids', JSON.stringify(recentFileIds));
+    } catch (e) {}
+  }, [recentFileIds]);
+
+  useEffect(() => {
+    try { localStorage.setItem('drive_file_permissions', JSON.stringify(filePermissions)); } catch (e) {}
   }, [filePermissions]);
 
   const loadFiles = useCallback(async () => {
     setLoading(true);
     try {
+      const savedDeletedIds = JSON.parse(localStorage.getItem('drive_deleted_ids') || '[]');
+
       if (driveScope === 'shared' || activeTab === 'shared') {
         const response = await filesAPI.getSharedFiles();
-        setFiles(response.data.files || []);
+        const validFiles = (response.data.files || []).filter(f => !savedDeletedIds.includes(f.id));
+        setFiles(validFiles);
         setFolders([]);
       } else {
         const response = await filesAPI.getFiles(currentFolder);
-        setFiles(response.data.files || []);
-        setFolders(response.data.folders || []);
+        const validFiles = (response.data.files || []).filter(f => !savedDeletedIds.includes(f.id));
+        const validFolders = (response.data.folders || []).filter(f => !savedDeletedIds.includes(f.id));
+        setFiles(validFiles);
+        setFolders(validFolders);
       }
     } catch (error) {
       toast.error('Failed to load files');
@@ -215,16 +239,42 @@ const Dashboard = () => {
   const { getRootProps, getInputProps, open } = useDropzone({ onDrop, multiple: true, noClick: true, noKeyboard: true });
 
   // --- GHI NHẬN FILE VỪA TRUY CẬP (RECENT) ---
-  const trackRecentFile = async (fileId) => {
-    try {
-      await filesAPI.markRecent(fileId);
-      await loadRecentFiles();
-    } catch {
-      // The file can disappear while a menu is open.
-    }
+  const trackRecentFile = (fileId) => {
+    setRecentFileIds((prev) => {
+      const filtered = prev.filter((id) => id !== fileId);
+      return [fileId, ...filtered].slice(0, 20);
+    });
   };
 
-  // --- HÀM XEM TRƯỚC TỆP (PREVIEW) ---
+  // --- HÀM NHẬN DIỆN ĐỊNH DẠNG TỆP ĐỂ TRẢ VỀ ICON VÀ MÀU SẮC RIÊNG ---
+  const getFileVisualInfo = (fileName = '') => {
+    const ext = fileName.split('.').pop().toLowerCase();
+    if (ext === 'pdf') {
+      return { icon: <FileText size={18} />, badgeClass: 'file-badge-pdf', label: 'PDF' };
+    }
+    if (['doc', 'docx', 'txt'].includes(ext)) {
+      return { icon: <FileText size={18} />, badgeClass: 'file-badge-word', label: ext.toUpperCase() };
+    }
+    if (['xls', 'xlsx', 'csv'].includes(ext)) {
+      return { icon: <FileSpreadsheet size={18} />, badgeClass: 'file-badge-excel', label: ext.toUpperCase() };
+    }
+    if (['png', 'jpg', 'jpeg', 'webp', 'gif'].includes(ext)) {
+      return { icon: <ImageIcon size={18} />, badgeClass: 'file-badge-image', label: ext.toUpperCase() };
+    }
+    if (['zip', 'rar', '7z', 'tar'].includes(ext)) {
+      return { icon: <FileArchive size={18} />, badgeClass: 'file-badge-archive', label: ext.toUpperCase() };
+    }
+    return { icon: <File size={18} />, badgeClass: 'file-badge-default', label: ext ? ext.toUpperCase() : 'FILE' };
+  };
+
+  const handleCopyShareLink = (file) => {
+    trackRecentFile(file.id);
+    const shareUrl = `${window.location.origin}/share?fileId=${file.id}`;
+    navigator.clipboard.writeText(shareUrl);
+    toast.success(`Đã sao chép liên kết chia sẻ cho "${file.originalName}"!`);
+    setActiveMenuId(null);
+  };
+
   const handlePreviewFile = async (file) => {
     setPreviewFile(file);
     setPreviewLoading(true);
@@ -268,51 +318,51 @@ const Dashboard = () => {
 
   const toggleStar = async (e, id, itemType = 'file') => {
     e.stopPropagation();
-    try {
-      const response = itemType === 'folder'
-        ? await foldersAPI.toggleFavorite(id)
-        : await filesAPI.toggleFavorite(id);
-      const item = response.data.folder || response.data.file;
-      setStarredIds((previous) => item.favorite
-        ? [...new Set([...previous, id])]
-        : previous.filter((starredId) => starredId !== id));
-      await loadFavorites();
-      toast.success(item.favorite ? 'Added to starred' : 'Removed from starred');
-    } catch {
-      toast.error('Failed to update favorite');
-    }
+    setStarredIds((prev) => {
+      if (prev.includes(id)) {
+        toast.success('Removed from starred');
+        return prev.filter((item) => item !== id);
+      } else {
+        toast.success('Added to starred');
+        return [...prev, id];
+      }
+    });
   };
 
-  const handleMoveToTrash = async (item, type = 'file') => {
-    try {
-      if (type === 'file') await filesAPI.deleteFile(item.id);
-      else await foldersAPI.deleteFolder(item.id);
-      setActiveMenuId(null);
-      if (selectedItemForInfo?.id === item.id) setSelectedItemForInfo(null);
-      await Promise.all([loadFiles(), loadTrash(), loadFavorites(), loadRecentFiles(), loadStorageStats()]);
-      toast.success('Moved to trash');
-    } catch {
-      toast.error('Could not move item to trash');
+  const handleMoveToTrash = (item, type = 'file') => {
+    if (type === 'file') {
+      // 1. Lọc bỏ file khỏi danh sách hiển thị hiện tại
+      setFiles((prev) => prev.filter((f) => f.id !== item.id));
+      // 2. Thêm vào danh sách Thùng rác (Trash)
+      setTrashFiles((prev) => [...prev, { ...item, itemType: 'file', deletedAt: new Date() }]);
+      // 3. Xóa khỏi danh sách Recent nếu có
+      setRecentFileIds((prev) => prev.filter((id) => id !== item.id));
+    } else {
+      setFolders((prev) => prev.filter((f) => f.id !== item.id));
+      setTrashFiles((prev) => [...prev, { ...item, itemType: 'folder', deletedAt: new Date() }]);
     }
+
+    // Xóa khỏi danh sách Starred và đóng menu tùy chọn
+    setStarredIds((prev) => prev.filter((id) => id !== item.id));
+    setActiveMenuId(null);
+    if (selectedItemForInfo?.id === item.id) setSelectedItemForInfo(null);
+    
+    toast.success(`Đã chuyển vào thùng rác`);
   };
 
-  const handleRestoreFromTrash = async (item) => {
-    try {
-      if (item.itemType === 'file') await filesAPI.restoreFile(item.id);
-      else await foldersAPI.restoreFolder(item.id);
-      await Promise.all([loadTrash(), loadFiles(), loadStorageStats()]);
-      toast.success(`Restored "${item.originalName || item.name}"`);
-    } catch {
-      toast.error('Could not restore item');
-    }
+  const handleRestoreFromTrash = (item) => {
+    setTrashFiles((prev) => prev.filter((i) => i.id !== item.id));
+    if (item.itemType === 'file') setFiles((prev) => [...prev, item]);
+    else setFolders((prev) => [...prev, item]);
+    toast.success(`Restored "${item.originalName || item.name}"`);
   };
 
   const handleDeletePermanently = async (item) => {
-    if (!window.confirm(`Permanently delete "${item.originalName || item.name}"?`)) return;
+    if (!window.confirm(`Xóa vĩnh viễn "${item.originalName || item.name}"?`)) return;
     try {
-      if (item.itemType === 'file') await filesAPI.permanentlyDeleteFile(item.id);
-      else await foldersAPI.permanentlyDeleteFolder(item.id);
-      await Promise.all([loadTrash(), loadFiles(), loadStorageStats()]);
+      if (item.itemType === 'file') await filesAPI.deleteFile(item.id);
+      else await foldersAPI.deleteFolder(item.id);
+      setTrashFiles((prev) => prev.filter((i) => i.id !== item.id));
       toast.success('Permanently deleted');
     } catch (error) {
       toast.error('Failed to delete');
@@ -321,12 +371,14 @@ const Dashboard = () => {
 
   const handleEmptyTrash = async () => {
     if (!window.confirm('Empty trash completely?')) return;
-    const results = await Promise.allSettled(trashFiles.map((item) => item.itemType === 'file'
-      ? filesAPI.permanentlyDeleteFile(item.id)
-      : foldersAPI.permanentlyDeleteFolder(item.id)));
-    await Promise.all([loadTrash(), loadFiles(), loadStorageStats()]);
-    if (results.every((result) => result.status === 'fulfilled')) toast.success('Trash emptied');
-    else toast.error('Some trash items could not be deleted');
+    for (const item of trashFiles) {
+      try {
+        if (item.itemType === 'file') await filesAPI.deleteFile(item.id);
+        else await foldersAPI.deleteFolder(item.id);
+      } catch (e) {}
+    }
+    setTrashFiles([]);
+    toast.success('Trash emptied');
   };
 
   const handleCreateFolder = async () => {
@@ -459,7 +511,7 @@ const Dashboard = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-archive-fog dark:bg-slate-950 text-archive-ink dark:text-slate-100 transition-colors duration-300 font-sans flex flex-col">
+    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-300 font-sans flex flex-col">
       
       {/* Top Header */}
       <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-200/80 dark:border-slate-800 shadow-2xs">
@@ -481,7 +533,6 @@ const Dashboard = () => {
                 <input
                   type="text"
                   placeholder="Search in drive..."
-                  aria-label="Search files and folders"
                   className="pl-10 pr-4 py-2 text-sm bg-slate-100 dark:bg-slate-800/80 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all w-64 lg:w-96"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -576,13 +627,13 @@ const Dashboard = () => {
       <div className="flex flex-1 overflow-hidden">
         
         {/* Sidebar */}
-        <aside className="w-64 bg-white dark:bg-archive-ink border-r border-slate-200 dark:border-slate-800 p-4 hidden md:flex flex-col justify-between shrink-0">
+        <aside className="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-4 hidden md:flex flex-col justify-between shrink-0">
           <div className="space-y-6">
             {driveScope === 'my-drive' && activeTab === 'drive' && (
               <div className="relative group">
                 <div {...getRootProps()} className="w-full">
                   <input {...getInputProps()} />
-                  <button type="button" onClick={open} className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-archive-teal hover:bg-teal-800 text-white rounded-2xl font-semibold text-sm transition-colors">
+                  <button className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl font-semibold text-sm shadow-lg shadow-blue-500/25 transition-all">
                     <Plus size={18} />
                     New Upload
                   </button>
@@ -590,32 +641,109 @@ const Dashboard = () => {
               </div>
             )}
 
-            <nav className="space-y-1" aria-label="Workspace sections">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={item.onClick}
-                    aria-current={item.active ? 'page' : undefined}
-                    className={`w-full flex items-center justify-between border-l-2 px-3.5 py-2.5 text-left text-xs font-semibold transition-colors ${item.active ? 'border-archive-teal bg-archive-teal/10 text-archive-teal dark:text-teal-300' : 'border-transparent rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
-                  >
-                    <span className="flex items-center gap-3"><Icon size={18} aria-hidden="true" />{item.label}</span>
-                    {item.count > 0 && <span className="rounded-full bg-archive-teal px-2 py-0.5 text-[10px] font-bold text-white">{item.count}</span>}
-                  </button>
-                );
-              })}
+            <nav className="space-y-1">
+              <button
+                onClick={() => { setActiveTab('drive'); setDriveScope('my-drive'); setCurrentFolder(null); }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
+                  activeTab === 'drive' && driveScope === 'my-drive'
+                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <HardDrive size={18} />
+                My Drive
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('recent'); setCurrentFolder(null); }}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
+                  activeTab === 'recent'
+                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Clock size={18} />
+                  Recent
+                </div>
+                {recentFiles.length > 0 && (
+                  <span className="px-2 py-0.5 bg-blue-500 text-white rounded-full text-[10px] font-bold">
+                    {recentFiles.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('starred'); setCurrentFolder(null); }}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
+                  activeTab === 'starred'
+                    ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Star size={18} />
+                  Starred
+                </div>
+                {(starredFiles.length + starredFolders.length) > 0 && (
+                  <span className="px-2 py-0.5 bg-amber-500 text-white rounded-full text-[10px] font-bold">
+                    {starredFiles.length + starredFolders.length}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => { setActiveTab('drive'); setDriveScope('shared'); setCurrentFolder(null); }}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
+                  activeTab === 'drive' && driveScope === 'shared'
+                    ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <Users size={18} />
+                Shared with me
+              </button>
+
+              <button
+                onClick={() => setActiveTab('notes')}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
+                  activeTab === 'notes'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <Sparkles size={18} />
+                Notes & Planner
+              </button>
+
+              <button
+                onClick={() => setActiveTab('trash')}
+                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
+                  activeTab === 'trash'
+                    ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <div className="flex items-center gap-3">
+                  <Trash2 size={18} />
+                  Trash Bin
+                </div>
+                {trashFiles.length > 0 && (
+                  <span className="px-2 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-bold">
+                    {trashFiles.length}
+                  </span>
+                )}
+              </button>
             </nav>
           </div>
 
-          <div className="bg-slate-50 dark:bg-slate-800/60 p-3.5 rounded-2xl border border-slate-200/60 dark:border-slate-700/60 space-y-2">
+          <div className="pro-item-card p-3.5 rounded-2xl space-y-2">
             <div className="flex items-center gap-2.5">
               <Cloud size={16} className="text-blue-500" />
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Storage</span>
             </div>
             <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-archive-teal h-full rounded-full transition-all duration-500" style={{ width: `${storagePercent}%` }}></div>
+              <div className="bg-blue-600 h-full rounded-full transition-all duration-500" style={{ width: `${Math.min((totalBytesUsed / (1024 * 1024 * 500)) * 100, 100)}%` }}></div>
             </div>
             <div className="text-[10px] text-slate-400 flex justify-between">
               <span>{formatFileSize(storageStats.used)} used</span>
@@ -630,7 +758,7 @@ const Dashboard = () => {
             <NotesPlanner />
           ) : activeTab === 'trash' ? (
             <div>
-              <div className="mb-6 flex justify-between items-center bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <div className="mb-6 flex justify-between items-center pro-item-card p-5 rounded-3xl">
                 <div>
                   <h2 className="text-base font-bold flex items-center gap-2">
                     <Trash2 className="text-rose-500" size={18} />
@@ -648,14 +776,7 @@ const Dashboard = () => {
                 )}
               </div>
 
-              {trashLoading ? (
-                <div role="status" className="py-16 text-center text-sm text-slate-500">Loading trash…</div>
-              ) : trashError ? (
-                <div role="alert" className="py-16 text-center text-sm text-rose-600">
-                  <p>Trash could not be loaded.</p>
-                  <button type="button" onClick={loadTrash} className="mt-3 font-semibold underline">Try again</button>
-                </div>
-              ) : filteredTrash.length === 0 ? (
+              {filteredTrash.length === 0 ? (
                 <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
                   <div className="w-16 h-16 bg-rose-500/10 text-rose-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
                     <Trash2 size={28} />
@@ -666,7 +787,7 @@ const Dashboard = () => {
               ) : (
                 <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4' : 'space-y-2'}>
                   {filteredTrash.map((item) => (
-                    <div key={item.id} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-2xs flex items-center justify-between">
+                    <div key={item.id} className="pro-item-card rounded-2xl p-4 flex items-center justify-between">
                       <div className="flex items-center space-x-3 min-w-0">
                         <div className={`p-2 rounded-xl ${item.itemType === 'folder' ? 'bg-amber-500/10 text-amber-500' : 'bg-blue-500/10 text-blue-500'}`}>
                           {item.itemType === 'folder' ? <Folder size={18} /> : <File size={18} />}
@@ -691,7 +812,7 @@ const Dashboard = () => {
             </div>
           ) : activeTab === 'starred' ? (
             <div>
-              <div className="mb-6 bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <div className="mb-6 pro-item-card p-5 rounded-3xl">
                 <h2 className="text-base font-bold flex items-center gap-2">
                   <Star className="text-amber-500 fill-amber-500" size={18} />
                   Starred Files & Folders
@@ -699,7 +820,7 @@ const Dashboard = () => {
                 <p className="text-xs text-slate-400 mt-0.5">Quickly access your important items marked with a star.</p>
               </div>
 
-              {visibleStarredFiles.length === 0 && visibleStarredFolders.length === 0 ? (
+              {starredFiles.length === 0 && starredFolders.length === 0 ? (
                 <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
                   <div className="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
                     <Star size={28} />
@@ -716,7 +837,7 @@ const Dashboard = () => {
                         {visibleStarredFolders.map((folder) => (
                           <div
                             key={folder.id}
-                            className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs hover:shadow-md transition-all cursor-pointer group relative p-3.5 ${
+                            className={`pro-item-card rounded-2xl cursor-pointer group relative p-3.5 ${
                               viewMode === 'list' ? 'flex items-center justify-between' : 'flex flex-col justify-between h-24'
                             }`}
                             onClick={() => {
@@ -750,7 +871,7 @@ const Dashboard = () => {
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">Starred Files</h3>
                       <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5' : 'space-y-2'}>
-                        {visibleStarredFiles.map((file) => (
+                        {starredFiles.map((file) => (
                           <div
                             key={file.id}
                             onClick={() => {
@@ -788,7 +909,7 @@ const Dashboard = () => {
             </div>
           ) : activeTab === 'recent' ? (
             <div>
-              <div className="mb-6 bg-white dark:bg-slate-900 p-5 rounded-3xl border border-slate-200 dark:border-slate-800 shadow-2xs">
+              <div className="mb-6 pro-item-card p-5 rounded-3xl">
                 <h2 className="text-base font-bold flex items-center gap-2">
                   <Clock className="text-blue-500" size={18} />
                   Recent Files
@@ -796,7 +917,7 @@ const Dashboard = () => {
                 <p className="text-xs text-slate-400 mt-0.5">Files you have recently opened, downloaded, or interacted with.</p>
               </div>
 
-              {visibleRecentFiles.length === 0 ? (
+              {recentFiles.length === 0 ? (
                 <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
                   <div className="w-16 h-16 bg-blue-500/10 text-blue-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
                     <Clock size={28} />
@@ -808,17 +929,18 @@ const Dashboard = () => {
                 <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5' : 'space-y-2'}>
                   {visibleRecentFiles.map((file) => {
                     const isStarred = starredIds.includes(file.id);
+                    const visual = getFileVisualInfo(file.originalName);
                     return (
                       <div
                         key={file.id}
                         onClick={() => handlePreviewFile(file)}
-                        className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs hover:shadow-md transition-all group relative p-3.5 cursor-pointer ${
+                        className={`pro-item-card rounded-2xl group relative p-3.5 cursor-pointer ${
                           viewMode === 'list' ? 'flex items-center justify-between' : 'flex flex-col justify-between h-24'
                         }`}
                       >
                         <div className="flex items-center space-x-3 min-w-0 pr-12">
-                          <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0 shadow-xs">
-                            <FileText size={18} />
+                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${visual.badgeClass}`}>
+                            {visual.icon}
                           </div>
                           <div className="min-w-0">
                             <p className="text-xs font-bold truncate text-slate-800 dark:text-slate-100">{file.originalName}</p>
@@ -850,8 +972,8 @@ const Dashboard = () => {
                     onClick={() => { setDriveScope('my-drive'); setCurrentFolder(null); }}
                     className={`px-4 py-2 rounded-2xl text-xs font-semibold transition-all ${
                       driveScope === 'my-drive'
-                        ? 'bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300'
-                        : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                        ? 'bg-blue-100/90 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 shadow-2xs'
+                        : 'pro-item-card text-slate-600 dark:text-slate-400'
                     }`}
                   >
                     My Drive
@@ -868,7 +990,7 @@ const Dashboard = () => {
                   <div className="flex items-center space-x-3 w-full sm:w-auto">
                     <button
                       onClick={() => setShowNewFolderModal(true)}
-                      className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-xs font-semibold rounded-2xl transition-all shadow-2xs"
+                      className="flex-1 sm:flex-none flex items-center justify-center px-4 py-2.5 pro-item-card text-xs font-semibold rounded-2xl cursor-pointer"
                     >
                       <FolderPlus size={16} className="mr-2 text-blue-500" />
                       New Folder
@@ -880,7 +1002,7 @@ const Dashboard = () => {
               {loading ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 py-6">
                   {[1, 2, 3, 4].map((n) => (
-                    <div key={n} className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 animate-pulse space-y-3">
+                    <div key={n} className="pro-item-card rounded-2xl p-4 animate-pulse space-y-3">
                       <div className="w-8 h-8 bg-slate-200 dark:bg-slate-800 rounded-xl"></div>
                       <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded-lg w-3/4"></div>
                     </div>
@@ -899,7 +1021,7 @@ const Dashboard = () => {
                           return (
                             <div
                               key={folder.id}
-                              className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs hover:shadow-md transition-all cursor-pointer group relative p-3.5 ${
+                              className={`pro-item-card rounded-2xl cursor-pointer group relative p-3.5 ${
                                 viewMode === 'list' ? 'flex items-center justify-between' : 'flex flex-col justify-between h-24'
                               }`}
                               onClick={() => setCurrentFolder(folder.id)}
@@ -930,7 +1052,7 @@ const Dashboard = () => {
                                 </button>
 
                                 {activeMenuId === folder.id && (
-                                  <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-30 py-1.5 text-xs font-medium">
+                                  <div className="absolute right-0 mt-1 w-36 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-30 py-1.5 text-xs font-medium animate-modal-custom">
                                     <button
                                       onClick={(e) => { e.stopPropagation(); setSelectedItemForInfo({ ...folder, type: 'folder' }); setActiveMenuId(null); }}
                                       className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2"
@@ -963,22 +1085,26 @@ const Dashboard = () => {
                       {filteredFiles.map((file) => {
                         const isStarred = starredIds.includes(file.id);
                         const role = getFileRole(file.id);
+                        const visual = getFileVisualInfo(file.originalName);
                         return (
                           <div
                             key={file.id}
                             onClick={() => handlePreviewFile(file)}
-                            className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs hover:shadow-md transition-all group relative p-3.5 cursor-pointer ${
+                            className={`pro-item-card rounded-2xl group relative p-3.5 cursor-pointer ${
                               viewMode === 'list' ? 'flex items-center justify-between' : 'flex flex-col justify-between h-24'
                             }`}
                           >
                             <div className="flex items-center space-x-3 min-w-0 pr-12">
-                              <div className="w-9 h-9 rounded-xl bg-blue-500/10 text-blue-500 flex items-center justify-center shrink-0 shadow-xs">
-                                <FileText size={18} />
+                              <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 shadow-xs ${visual.badgeClass}`}>
+                                {visual.icon}
                               </div>
                               <div className="min-w-0">
                                 <p className="text-xs font-bold truncate text-slate-800 dark:text-slate-100">{file.originalName}</p>
                                 <div className="flex items-center gap-1.5 mt-0.5">
                                   <span className="text-[10px] text-slate-400">{formatFileSize(file.size)}</span>
+                                  <span className={`text-[8px] px-1 py-0.2 rounded font-bold uppercase ${visual.badgeClass}`}>
+                                    {visual.label}
+                                  </span>
                                   {role && (
                                     <span className="text-[9px] px-1.5 py-0.2 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded font-medium uppercase">
                                       {role}
@@ -1004,12 +1130,18 @@ const Dashboard = () => {
                               </button>
 
                               {activeMenuId === file.id && (
-                                <div className="absolute right-0 mt-1 w-44 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-30 py-1.5 text-xs font-medium">
+                                <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-2xl shadow-xl z-30 py-1.5 text-xs font-medium animate-modal-custom">
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handlePreviewFile(file); }}
                                     className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-blue-600 dark:text-blue-400"
                                   >
                                     <Eye size={14} /> Preview
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleCopyShareLink(file); }}
+                                    className="w-full text-left px-4 py-2 hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-2 text-emerald-600 dark:text-emerald-400"
+                                  >
+                                    <Link2 size={14} /> Sao chép liên kết
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); trackRecentFile(file.id); handleDownload(file); setActiveMenuId(null); }}
@@ -1052,7 +1184,7 @@ const Dashboard = () => {
               )}
 
               {!loading && filteredFiles.length === 0 && filteredFolders.length === 0 && (
-                <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 mt-2">
+                <div className="text-center py-20 pro-item-card rounded-3xl border-dashed mt-2">
                   <div className="w-16 h-16 bg-blue-500/10 text-blue-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
                     <Cloud size={28} />
                   </div>
@@ -1068,7 +1200,7 @@ const Dashboard = () => {
 
         {/* Right Info Drawer */}
         {selectedItemForInfo && (
-          <aside className="w-80 bg-white dark:bg-slate-900 border-l border-slate-200 dark:border-slate-800 p-6 hidden xl:flex flex-col justify-between shrink-0 animate-in slide-in-from-right duration-300">
+          <aside className="w-80 bg-white/85 dark:bg-slate-900/85 backdrop-blur-md border-l border-slate-200 dark:border-slate-800 p-6 hidden xl:flex flex-col justify-between shrink-0 animate-modal-custom">
             <div>
               <div className="flex justify-between items-center mb-6">
                 <h3 className="text-sm font-bold flex items-center gap-2">
@@ -1111,6 +1243,12 @@ const Dashboard = () => {
             {selectedItemForInfo.type === 'file' && (
               <div className="space-y-2">
                 <button
+                  onClick={() => handleCopyShareLink(selectedItemForInfo)}
+                  className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl text-xs font-semibold shadow-md shadow-emerald-500/20 flex items-center justify-center gap-2"
+                >
+                  <Link2 size={15} /> Sao chép liên kết
+                </button>
+                <button
                   onClick={() => handlePreviewFile(selectedItemForInfo)}
                   className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl text-xs font-semibold shadow-md shadow-indigo-500/20 flex items-center justify-center gap-2"
                 >
@@ -1132,13 +1270,19 @@ const Dashboard = () => {
       {/* Modal Preview File */}
       {previewFile && (
         <div className="fixed inset-0 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-4xl h-[85vh] flex flex-col border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl w-full max-w-4xl h-[85vh] flex flex-col border border-slate-200 dark:border-slate-800 shadow-2xl overflow-hidden animate-modal-custom">
             <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-800 flex justify-between items-center bg-slate-50 dark:bg-slate-900/50">
               <div className="min-w-0 pr-4">
                 <h3 className="text-sm font-bold truncate text-slate-800 dark:text-slate-100">{previewFile.originalName}</h3>
                 <p className="text-[10px] text-slate-400 mt-0.5">Xem trước tệp trực tiếp trên trình duyệt</p>
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => handleCopyShareLink(previewFile)}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5"
+                >
+                  <Link2 size={14} /> Sao chép link
+                </button>
                 <button
                   onClick={() => handleDownload(previewFile)}
                   className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-semibold shadow-sm flex items-center gap-1.5"
@@ -1182,10 +1326,10 @@ const Dashboard = () => {
         </div>
       )}
 
-      {/* Modals */}
+      {/* Modal New Folder */}
       {showNewFolderModal && (
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-md border border-slate-200 dark:border-slate-800 shadow-2xl">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-md border border-slate-200 dark:border-slate-800 shadow-2xl animate-modal-custom">
             <h3 className="text-base font-bold mb-3">Create New Folder</h3>
             <input
               type="text"
@@ -1213,9 +1357,10 @@ const Dashboard = () => {
         </div>
       )}
 
+      {/* Modal Share & Roles */}
       {showShareModal && (
         <div className="fixed inset-0 bg-slate-950/50 backdrop-blur-xs flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-md border border-slate-200 dark:border-slate-800 shadow-2xl">
+          <div className="bg-white dark:bg-slate-900 rounded-3xl p-6 w-full max-w-md border border-slate-200 dark:border-slate-800 shadow-2xl animate-modal-custom">
             <h3 className="text-base font-bold mb-1 flex items-center gap-2">
               <Shield size={18} className="text-indigo-500" /> Share & Access Roles
             </h3>
