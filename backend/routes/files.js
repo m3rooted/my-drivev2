@@ -255,7 +255,7 @@ router.post('/:id/share-link', auth, asyncHandler(async (req, res) => {
   const file = await FileModel.createShareLink(req.params.id, req.user.id, permission);
   if (!file) return res.status(404).json({ error: 'File not found' });
 
-  const publicApiUrl = (process.env.PUBLIC_API_URL || `http://localhost:${process.env.PORT || 5000}/api`).replace(/\/$/, '');
+  const publicApiUrl = (process.env.PUBLIC_API_URL || `http://127.0.0.1:${process.env.PORT || 5000}/api`).replace(/\/$/, '');
   return res.json({
     url: `${publicApiUrl}/files/link/${file.shareToken}/download`,
     token: file.shareToken,

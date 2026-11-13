@@ -10,7 +10,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in the repository root .env file}
       DATA_FILE: /app/data/drive-store.json
       UPLOAD_DIR: /app/uploads
-      PUBLIC_API_URL: http://localhost:5000/api
+      PUBLIC_API_URL: http://127.0.0.1:5000/api
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
     ports:
       - "127.0.0.1:5000:5000"
@@ -31,7 +31,7 @@ services:
       context: ./frontend
       target: development
     environment:
-      REACT_APP_API_URL: http://localhost:5000/api
+      REACT_APP_API_URL: http://127.0.0.1:5000/api
       HOST: 0.0.0.0
       PORT: 3000
       CHOKIDAR_USEPOLLING: "true"

@@ -125,7 +125,7 @@ test('share links do not trust the request Host header and download only the sha
   const link = await linkResponse.json();
 
   assert.equal(linkResponse.status, 200);
-  assert.equal(new URL(link.url).host, 'localhost:5000');
+  assert.equal(new URL(link.url).host, '127.0.0.1:5000');
   assert.equal(link.url.includes('attacker.example'), false);
 
   const downloadPath = new URL(link.url).pathname;

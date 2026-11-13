@@ -24,11 +24,11 @@ cd frontend
 npm ci
 $env:HOST='127.0.0.1'
 $env:DANGEROUSLY_DISABLE_HOST_CHECK='true'
-$env:REACT_APP_API_URL='http://localhost:5000/api'
+$env:REACT_APP_API_URL='http://127.0.0.1:5000/api'
 npm start
 ```
 
-Open <http://localhost:3000>. The API listens on <http://localhost:5000> and its health endpoint is `/api/health`.
+Open <http://127.0.0.1:3000>. The API listens on <http://127.0.0.1:5000> and its health endpoint is `/api/health`.
 
 The backend defaults to loopback only and refuses the development fallback secret when bound to a non-loopback address. Its `.env` supports `PORT`, `HOST`, `JWT_SECRET`, `CORS_ORIGINS`, `DATA_FILE`, and `UPLOAD_DIR`. Generate a private JWT secret for your local account data, for example:
 
@@ -56,7 +56,7 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Open <http://localhost:3000>. Compose binds both ports to `127.0.0.1`, waits for a healthy API, and mounts metadata and uploads from `backend/data` and `backend/uploads`. Stop with `docker compose down`; do not use `docker compose down -v` if you want to keep the dependency cache volumes.
+Open <http://127.0.0.1:3000>. Compose binds both ports to `127.0.0.1`, waits for a healthy API, and mounts metadata and uploads from `backend/data` and `backend/uploads`. Stop with `docker compose down`; do not use `docker compose down -v` if you want to keep the dependency cache volumes.
 
 The backend Dockerfile also has a `production` target. The frontend Dockerfile has a `build` target for generating the static React bundle. This repository does not publish or deploy either image.
 

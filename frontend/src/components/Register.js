@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { Mail, Lock, User, Cloud, ArrowRight, FolderOpen, FileText, CalendarDays, Sun, Moon } from 'lucide-react';
-import { getPasswordConfirmationError } from '../services/validation';
+import { getRegistrationValidationError } from '../services/validation';
 
 const Register = () => {
   const [formData, setFormData] = useState({
@@ -27,7 +27,7 @@ const Register = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const validationError = getPasswordConfirmationError(formData.password, formData.confirmPassword);
+    const validationError = getRegistrationValidationError(formData.password, formData.confirmPassword);
     setFormError(validationError || '');
     if (validationError) {
       return;
@@ -150,8 +150,9 @@ const Register = () => {
                   name="password"
                   type="password"
                   autoComplete="new-password"
-                  minLength={8}
                   maxLength={72}
+                  aria-invalid={Boolean(formError)}
+                  aria-describedby={formError ? 'registration-error' : undefined}
                   required
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="••••••••"
@@ -173,8 +174,9 @@ const Register = () => {
                   name="confirmPassword"
                   type="password"
                   autoComplete="new-password"
-                  minLength={8}
                   maxLength={72}
+                  aria-invalid={Boolean(formError)}
+                  aria-describedby={formError ? 'registration-error' : undefined}
                   required
                   className="w-full pl-10 pr-4 py-3 bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 rounded-2xl text-xs font-medium text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-all"
                   placeholder="••••••••"
@@ -186,7 +188,7 @@ const Register = () => {
 
           </div>
 
-          {formError && <p role="alert" className="text-sm font-medium text-rose-600">{formError}</p>}
+          {formError && <p id="registration-error" role="alert" className="text-sm font-medium text-rose-600">{formError}</p>}
 
           <button
             type="submit"

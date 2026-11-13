@@ -64,6 +64,21 @@ test('rejects malformed registration input before creating an account', async ()
   assert.equal(response.status, 400);
 });
 
+test('registers valid credentials and returns a token without a password hash', async () => {
+  const response = await request('/api/auth/register', null, {
+    email: 'new-user@example.test',
+    name: 'New User',
+    password: 'correct horse battery staple'
+  });
+  const payload = await response.json();
+
+  assert.equal(response.status, 201);
+  assert.ok(payload.token);
+  assert.equal(payload.user.email, 'new-user@example.test');
+  assert.equal('password' in payload.user, false);
+  assert.equal(jwt.verify(payload.token, process.env.JWT_SECRET).id, payload.user.id);
+});
+
 test('returns a client error for non-string note content', async () => {
   const response = await request('/api/notes', otherUserToken, {
     category: 'note',
