@@ -187,8 +187,11 @@ test('serializes folder restore against permanent folder deletion', async () => 
 
   const originalMove = fsExtra.move;
   let finishMove;
+  let announceMoveStart;
+  const moveStarted = new Promise((resolve) => { announceMoveStart = resolve; });
   fsExtra.move = (source, destination, ...args) => {
     if (path.resolve(source) === path.resolve(filePath)) {
+      announceMoveStart();
       return new Promise((resolve, reject) => {
         finishMove = () => originalMove(source, destination, ...args).then(resolve, reject);
       });
@@ -197,7 +200,8 @@ test('serializes folder restore against permanent folder deletion', async () => 
   };
   try {
     const deleting = FileModel.permanentlyDeleteFolder(folder.id, userId);
-    await new Promise((resolve) => setImmediate(resolve));
+    await Promise.race([moveStarted, deleting.then(() => { throw new Error('Delete finished before staging the file'); })]);
+    assert.equal(typeof finishMove, 'function');
     let restoreSettled = false;
     const restoring = FileModel.restoreFolder(folder.id, userId).then((result) => {
       restoreSettled = true;

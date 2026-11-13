@@ -36,6 +36,30 @@ class File {
   constructor() {
     this.files = [];
     this.folders = [];
+    this.mutationLocks = new Map();
+  }
+
+  async withMutationLock(key, operation) {
+    const previous = this.mutationLocks.get(key);
+    let release;
+    const current = new Promise((resolve) => { release = resolve; });
+    this.mutationLocks.set(key, current);
+    if (previous) await previous.catch(() => undefined);
+
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.mutationLocks.get(key) === current) this.mutationLocks.delete(key);
+    }
+  }
+
+  async withMutationLocks(keys, operation) {
+    const orderedKeys = [...new Set(keys)].sort();
+    const acquireNext = (index) => index === orderedKeys.length
+      ? operation()
+      : this.withMutationLock(orderedKeys[index], () => acquireNext(index + 1));
+    return acquireNext(0);
   }
 
   async createFile(fileData) {
@@ -54,9 +78,15 @@ class File {
       updatedAt: new Date()
     };
 
-    this.files.push(file);
-    await persistState();
-    return file;
+    const create = async () => {
+      if (file.folderId && !await this.getFolderById(file.folderId, file.userId)) {
+        throw new Error('Folder not found');
+      }
+      this.files.push(file);
+      await persistState();
+      return file;
+    };
+    return file.folderId ? this.withMutationLock(`folder:${file.folderId}`, create) : create();
   }
 
   async createFolder(folderData) {
@@ -69,9 +99,15 @@ class File {
       updatedAt: new Date()
     };
 
-    this.folders.push(folder);
-    await persistState();
-    return folder;
+    const create = async () => {
+      if (folder.parentId && !await this.getFolderById(folder.parentId, folder.userId)) {
+        throw new Error('Parent folder not found');
+      }
+      this.folders.push(folder);
+      await persistState();
+      return folder;
+    };
+    return folder.parentId ? this.withMutationLock(`folder:${folder.parentId}`, create) : create();
   }
 
   async getFilesByUserId(userId, folderId = null) {
@@ -177,13 +213,13 @@ class File {
   }
 
   async deleteFile(id, userId) {
-    const file = this.files.find(file => file.id === id && file.userId === userId && !file.deletedAt);
-    if (file) {
+    return this.withMutationLock(`file:${id}`, async () => {
+      const file = this.files.find(file => file.id === id && file.userId === userId && !file.deletedAt);
+      if (!file) return false;
       file.deletedAt = new Date();
       await persistState();
       return true;
-    }
-    return false;
+    });
   }
 
   async getTrash(userId) {
@@ -197,49 +233,67 @@ class File {
   }
 
   async restoreFile(id, userId) {
-    const file = this.files.find((entry) => entry.id === id && entry.userId === userId && entry.deletedAt);
-    if (!file) return false;
-    file.deletedAt = null;
-    file.updatedAt = new Date();
-    await persistState();
-    return true;
+    return this.withMutationLock(`file:${id}`, async () => {
+      const file = this.files.find((entry) => entry.id === id && entry.userId === userId && entry.deletedAt);
+      if (!file) return false;
+      if (file.folderId && this.folders.some((folder) => folder.id === file.folderId && folder.deletedAt)) return false;
+      file.deletedAt = null;
+      file.updatedAt = new Date();
+      await persistState();
+      return true;
+    });
   }
 
   async permanentlyDeleteFile(id, userId) {
-    const file = this.files.find((entry) => entry.id === id && entry.userId === userId && entry.deletedAt);
-    if (!file) return false;
-    const filePath = getSafeUploadPath(file.filename);
-    if (!filePath) return false;
-    await fs.remove(filePath);
-    const currentIndex = this.files.findIndex((entry) => entry.id === id && entry.userId === userId && entry.deletedAt);
-    if (currentIndex < 0) return false;
-    this.files.splice(currentIndex, 1);
-    await persistState();
-    return true;
+    return this.withMutationLock(`file:${id}`, async () => {
+      const file = this.files.find((entry) => entry.id === id && entry.userId === userId && entry.deletedAt);
+      if (!file) return false;
+      const filePath = getSafeUploadPath(file.filename);
+      if (!filePath) return false;
+      await fs.remove(filePath);
+      const currentIndex = this.files.findIndex((entry) => entry.id === id && entry.userId === userId && entry.deletedAt);
+      if (currentIndex < 0) return false;
+      this.files.splice(currentIndex, 1);
+      await persistState();
+      return true;
+    });
   }
 
   async permanentlyDeleteFolder(id, userId) {
-    const root = this.folders.find((folder) => folder.id === id && folder.userId === userId && folder.deletedAt);
-    if (!root) return false;
+    return this.withMutationLock(`folder:${id}`, async () => {
+      const root = this.folders.find((folder) => folder.id === id && folder.userId === userId && folder.deletedAt);
+      if (!root) return false;
 
-    const folderIds = collectFolderIds(this.folders, userId, root.id);
+      const folderIds = collectFolderIds(this.folders, userId, root.id);
+      const files = this.files.filter((file) => file.userId === userId && folderIds.has(file.folderId));
+      const nestedFolderIds = [...folderIds].filter((folderId) => folderId !== root.id);
+      const lockKeys = [
+        ...nestedFolderIds.map((folderId) => `folder:${folderId}`),
+        ...files.map((file) => `file:${file.id}`)
+      ];
+      return this.withMutationLocks(lockKeys, async () => {
+        const currentRoot = this.folders.find((folder) => folder.id === id && folder.userId === userId && folder.deletedAt);
+        if (!currentRoot) return false;
 
-    const files = this.files.filter((file) => file.userId === userId && folderIds.has(file.folderId));
-    const stagedDelete = await stageFilesForPermanentDelete(files, getUploadDirectory());
-    try {
-      this.files = this.files.filter((file) => !(file.userId === userId && folderIds.has(file.folderId)));
-      this.folders = this.folders.filter((folder) => !(folder.userId === userId && folderIds.has(folder.id)));
-      await persistState();
-    } catch (error) {
-      await stagedDelete.rollback().catch((rollbackError) => {
-        console.error('Failed to restore files after permanent folder delete failed:', rollbackError.message);
+        const currentFolderIds = collectFolderIds(this.folders, userId, currentRoot.id);
+        const currentFiles = this.files.filter((file) => file.userId === userId && currentFolderIds.has(file.folderId));
+        const stagedDelete = await stageFilesForPermanentDelete(currentFiles, getUploadDirectory());
+        try {
+          this.files = this.files.filter((file) => !(file.userId === userId && currentFolderIds.has(file.folderId)));
+          this.folders = this.folders.filter((folder) => !(folder.userId === userId && currentFolderIds.has(folder.id)));
+          await persistState();
+        } catch (error) {
+          await stagedDelete.rollback().catch((rollbackError) => {
+            console.error('Failed to restore files after permanent folder delete failed:', rollbackError.message);
+          });
+          throw error;
+        }
+        await stagedDelete.finalize().catch((error) => {
+          console.error('Could not clean staged files after permanent folder delete:', error.message);
+        });
+        return true;
       });
-      throw error;
-    }
-    await stagedDelete.finalize().catch((error) => {
-      console.error('Could not clean staged files after permanent folder delete:', error.message);
     });
-    return true;
   }
 
   async toggleFavorite(id, userId) {
@@ -277,12 +331,14 @@ class File {
   }
 
   async toggleFolderFavorite(id, userId) {
-    const folder = await this.getFolderById(id, userId);
-    if (!folder) return null;
-    folder.favorite = !folder.favorite;
-    folder.updatedAt = new Date();
-    await persistState();
-    return folder;
+    return this.withMutationLock(`folder:${id}`, async () => {
+      const folder = await this.getFolderById(id, userId);
+      if (!folder) return null;
+      folder.favorite = !folder.favorite;
+      folder.updatedAt = new Date();
+      await persistState();
+      return folder;
+    });
   }
 
   async markRecent(id, userId) {
@@ -333,35 +389,56 @@ class File {
   }
 
   async deleteFolder(id, userId) {
-    const root = this.folders.find((folder) => folder.id === id && folder.userId === userId && !folder.deletedAt);
-    if (!root) return false;
+    return this.withMutationLock(`folder:${id}`, async () => {
+      const root = this.folders.find((folder) => folder.id === id && folder.userId === userId && !folder.deletedAt);
+      if (!root) return false;
 
-    const folderIds = collectFolderIds(this.folders, userId, root.id);
-
-    const deletedAt = new Date();
-    for (const folder of this.folders) {
-      if (folderIds.has(folder.id) && !folder.deletedAt) folder.deletedAt = deletedAt;
-    }
-    for (const file of this.files) {
-      if (file.userId === userId && folderIds.has(file.folderId) && !file.deletedAt) file.deletedAt = deletedAt;
-    }
-    await persistState();
-    return true;
+      const folderIds = collectFolderIds(this.folders, userId, root.id);
+      const lockKeys = [
+        ...[...folderIds].filter((folderId) => folderId !== root.id).map((folderId) => `folder:${folderId}`),
+        ...this.files.filter((file) => file.userId === userId && folderIds.has(file.folderId)).map((file) => `file:${file.id}`)
+      ];
+      return this.withMutationLocks(lockKeys, async () => {
+        const currentRoot = this.folders.find((folder) => folder.id === id && folder.userId === userId && !folder.deletedAt);
+        if (!currentRoot) return false;
+        const currentFolderIds = collectFolderIds(this.folders, userId, currentRoot.id);
+        const deletedAt = new Date();
+        for (const folder of this.folders) {
+          if (currentFolderIds.has(folder.id) && !folder.deletedAt) folder.deletedAt = deletedAt;
+        }
+        for (const file of this.files) {
+          if (file.userId === userId && currentFolderIds.has(file.folderId) && !file.deletedAt) file.deletedAt = deletedAt;
+        }
+        await persistState();
+        return true;
+      });
+    });
   }
 
   async restoreFolder(id, userId) {
-    const root = this.folders.find((folder) => folder.id === id && folder.userId === userId && folder.deletedAt);
-    if (!root) return false;
-    const deletedAt = new Date(root.deletedAt).getTime();
-    const folderIds = collectFolderIds(this.folders, userId, root.id);
-    for (const folder of this.folders) {
-        if (folderIds.has(folder.id) && new Date(folder.deletedAt).getTime() === deletedAt) folder.deletedAt = null;
-    }
-    for (const file of this.files) {
-      if (file.userId === userId && folderIds.has(file.folderId) && new Date(file.deletedAt).getTime() === deletedAt) file.deletedAt = null;
-    }
-    await persistState();
-    return true;
+    return this.withMutationLock(`folder:${id}`, async () => {
+      const root = this.folders.find((folder) => folder.id === id && folder.userId === userId && folder.deletedAt);
+      if (!root) return false;
+      const folderIds = collectFolderIds(this.folders, userId, root.id);
+      const lockKeys = [
+        ...[...folderIds].filter((folderId) => folderId !== root.id).map((folderId) => `folder:${folderId}`),
+        ...this.files.filter((file) => file.userId === userId && folderIds.has(file.folderId)).map((file) => `file:${file.id}`)
+      ];
+      return this.withMutationLocks(lockKeys, async () => {
+        const currentRoot = this.folders.find((folder) => folder.id === id && folder.userId === userId && folder.deletedAt);
+        if (!currentRoot) return false;
+        const deletedAt = new Date(currentRoot.deletedAt).getTime();
+        const currentFolderIds = collectFolderIds(this.folders, userId, currentRoot.id);
+        for (const folder of this.folders) {
+          if (currentFolderIds.has(folder.id) && new Date(folder.deletedAt).getTime() === deletedAt) folder.deletedAt = null;
+        }
+        for (const file of this.files) {
+          if (file.userId === userId && currentFolderIds.has(file.folderId) && new Date(file.deletedAt).getTime() === deletedAt) file.deletedAt = null;
+        }
+        await persistState();
+        return true;
+      });
+    });
   }
 
   async renameFile(id, userId, newName) {
@@ -393,14 +470,14 @@ class File {
   }
 
   async renameFolder(id, userId, newName) {
-    const folder = this.folders.find(folder => folder.id === id && folder.userId === userId && !folder.deletedAt);
-    if (folder) {
+    return this.withMutationLock(`folder:${id}`, async () => {
+      const folder = this.folders.find(folder => folder.id === id && folder.userId === userId && !folder.deletedAt);
+      if (!folder) return null;
       folder.name = newName;
       folder.updatedAt = new Date();
       await persistState();
       return folder;
-    }
-    return null;
+    });
   }
 }
 
