@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
+const { persistState } = require('../storage/persistence');
 
 // Simple in-memory storage (replace with database in production)
 class User {
@@ -19,6 +20,11 @@ class User {
 
     // Hash password
     const hashedPassword = await bcrypt.hash(password, 10);
+
+    // Recheck after hashing because concurrent requests may have passed the first check.
+    if (this.users.some(user => user.email === normalizedEmail)) {
+      throw new Error('User already exists');
+    }
     
     const user = {
       id: uuidv4(),
@@ -30,6 +36,7 @@ class User {
     };
 
     this.users.push(user);
+    await persistState();
     
     // Return user without password
     const { password: _, ...userWithoutPassword } = user;

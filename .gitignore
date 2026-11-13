@@ -33,6 +33,8 @@ pids
 # Uploads folder (ignore user uploaded files)
 /backend/uploads/*
 !/backend/uploads/.gitkeep
+/backend/data/*
+!/backend/data/.gitkeep
 
 # IDE - VSCode
 .vscode/*

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import { CalendarClock, Clock3, Plus, StickyNote, Trash2, Sparkles, Bell } from 'lucide-react';
 import { getNotesStreamUrl, notesAPI } from '../services/api';
+import { connectTicketedStream } from '../services/ticketedStream';
 
 const toIsoDateTime = (value) => {
   if (!value) return null;
@@ -83,30 +84,23 @@ const NotesPlanner = () => {
     const token = localStorage.getItem('token');
     if (!token) return undefined;
 
-    const stream = new EventSource(getNotesStreamUrl(token));
-
-    const onConnected = () => setStreamConnected(true);
-    const onUpdate = (event) => {
-      try {
-        const payload = JSON.parse(event.data);
-        setItems(payload.notes || []);
-        if (payload.serverTime) {
-          setServerOffsetMs(new Date(payload.serverTime).getTime() - Date.now());
-        }
-      } catch (error) {
-        toast.error('Realtime data error');
-      }
-    };
-
-    stream.addEventListener('connected', onConnected);
-    stream.addEventListener('notes:update', onUpdate);
-    stream.onerror = () => setStreamConnected(false);
-
-    return () => {
-      stream.removeEventListener('connected', onConnected);
-      stream.removeEventListener('notes:update', onUpdate);
-      stream.close();
-    };
+    return connectTicketedStream({
+      getTicket: async () => (await notesAPI.createStreamTicket()).data.token,
+      createSource: (ticket) => new EventSource(getNotesStreamUrl(ticket)),
+      onConnected: () => setStreamConnected(true),
+      onMessage: (event) => {
+          try {
+            const payload = JSON.parse(event.data);
+            setItems(payload.notes || []);
+            if (payload.serverTime) {
+              setServerOffsetMs(new Date(payload.serverTime).getTime() - Date.now());
+            }
+          } catch {
+            toast.error('Realtime data error');
+          }
+      },
+      onStatusChange: setStreamConnected
+    });
   }, []);
 
   const noteItems = useMemo(

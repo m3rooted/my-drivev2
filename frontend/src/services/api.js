@@ -39,6 +39,14 @@ export const authAPI = {
 
 export const filesAPI = {
   getFiles: (folderId) => api.get('/files', { params: { folderId } }),
+  getTrash: () => api.get('/files/trash'),
+  getRecent: () => api.get('/files/recent'),
+  getFavorites: () => api.get('/files/favorites'),
+  getStorage: () => api.get('/files/storage'),
+  restoreFile: (id) => api.post(`/files/${id}/restore`),
+  permanentlyDeleteFile: (id) => api.delete(`/files/${id}/permanent`),
+  markRecent: (id) => api.post(`/files/${id}/recent`),
+  toggleFavorite: (id) => api.post(`/files/${id}/favorite`),
   getSharedFiles: () => api.get('/files/shared'),
   uploadFile: (formData) => api.post('/files/upload', formData, {
     headers: { 'Content-Type': 'multipart/form-data' }
@@ -55,19 +63,23 @@ export const foldersAPI = {
   createFolder: (folderData) => api.post('/folders', folderData),
   getFolderContents: (id) => api.get(`/folders/${id}`),
   deleteFolder: (id) => api.delete(`/folders/${id}`),
+  restoreFolder: (id) => api.post(`/folders/${id}/restore`),
+  permanentlyDeleteFolder: (id) => api.delete(`/folders/${id}/permanent`),
+  toggleFavorite: (id) => api.post(`/folders/${id}/favorite`),
   renameFolder: (id, name) => api.patch(`/folders/${id}/rename`, { name }),
 };
 
 export const notesAPI = {
   getNotes: () => api.get('/notes'),
+  createStreamTicket: () => api.post('/notes/stream-token'),
   createNote: (noteData) => api.post('/notes', noteData),
   updateNote: (id, noteData) => api.patch(`/notes/${id}`, noteData),
   deleteNote: (id) => api.delete(`/notes/${id}`),
 };
 
-export const getNotesStreamUrl = (token) => {
+export const getNotesStreamUrl = (ticket) => {
   const base = API_BASE_URL.replace(/\/$/, '');
-  return `${base}/notes/stream?token=${encodeURIComponent(token)}`;
+  return `${base}/notes/stream?ticket=${encodeURIComponent(ticket)}`;
 };
 
 export default api;

@@ -4,7 +4,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { filesAPI, foldersAPI } from '../services/api';
 import { useDropzone } from 'react-dropzone';
 import toast from 'react-hot-toast';
-import mammoth from 'mammoth';
+import { extractDocxText } from '../services/docxPreview';
 import {
   HardDrive,
   LogOut,
@@ -44,25 +44,15 @@ const Dashboard = () => {
   const [trashFiles, setTrashFiles] = useState([]);
   
   // --- STATE YÊU THÍCH (STARRED) ---
-  const [starredIds, setStarredIds] = useState(() => {
-    try {
-      const saved = localStorage.getItem('drive_starred_ids');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
+  const [starredIds, setStarredIds] = useState([]);
+  const [starredFiles, setStarredFiles] = useState([]);
+  const [starredFolders, setStarredFolders] = useState([]);
+  const [recentFiles, setRecentFiles] = useState([]);
+  const [storageStats, setStorageStats] = useState({ used: 0, quota: 15 * 1024 * 1024 * 1024 });
+  const [trashLoading, setTrashLoading] = useState(false);
+  const [trashError, setTrashError] = useState(false);
 
   // --- STATE FILE GẦN ĐÂY (RECENT FILES) ---
-  const [recentFileIds, setRecentFileIds] = useState(() => {
-    try {
-      const saved = localStorage.getItem('drive_recent_ids');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
-  });
-
   // --- STATE PHÂN QUYỀN TRUY CẬP (PERMISSIONS) ---
   const [filePermissions, setFilePermissions] = useState(() => {
     try {
@@ -77,6 +67,12 @@ const Dashboard = () => {
   const [previewFile, setPreviewFile] = useState(null);
   const [previewContent, setPreviewContent] = useState('');
   const [previewLoading, setPreviewLoading] = useState(false);
+
+  useEffect(() => {
+    if (!previewContent.startsWith('blob:')) return undefined;
+    const previewUrl = previewContent;
+    return () => window.URL.revokeObjectURL(previewUrl);
+  }, [previewContent]);
 
   const [currentFolder, setCurrentFolder] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -109,18 +105,10 @@ const Dashboard = () => {
   }, [activeMenuId]);
 
   // Lưu starredIds vào localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('drive_starred_ids', JSON.stringify(starredIds));
-    } catch (e) {}
-  }, [starredIds]);
+  // Favorite state is loaded from the durable API.
 
   // Lưu recentFileIds vào localStorage
-  useEffect(() => {
-    try {
-      localStorage.setItem('drive_recent_ids', JSON.stringify(recentFileIds));
-    } catch (e) {}
-  }, [recentFileIds]);
+  // Recent state is loaded from the durable API.
 
   // Lưu filePermissions vào localStorage
   useEffect(() => {
@@ -152,6 +140,61 @@ const Dashboard = () => {
     loadFiles();
   }, [loadFiles]);
 
+  const loadStorageStats = useCallback(async () => {
+    try {
+      const response = await filesAPI.getStorage();
+      setStorageStats(response.data);
+    } catch {
+      toast.error('Failed to load storage usage');
+    }
+  }, []);
+
+  useEffect(() => {
+    loadStorageStats();
+  }, [loadStorageStats]);
+
+  const loadTrash = useCallback(async () => {
+    setTrashLoading(true);
+    setTrashError(false);
+    try {
+      const response = await filesAPI.getTrash();
+      setTrashFiles([...(response.data.files || []), ...(response.data.folders || [])]);
+    } catch {
+      setTrashError(true);
+      toast.error('Failed to load trash');
+    } finally {
+      setTrashLoading(false);
+    }
+  }, []);
+
+  const loadRecentFiles = useCallback(async () => {
+    try {
+      const response = await filesAPI.getRecent();
+      setRecentFiles(response.data.files || []);
+    } catch {
+      toast.error('Failed to load recent files');
+    }
+  }, []);
+
+  const loadFavorites = useCallback(async () => {
+    try {
+      const response = await filesAPI.getFavorites();
+      const nextFiles = response.data.files || [];
+      const nextFolders = response.data.folders || [];
+      setStarredFiles(nextFiles);
+      setStarredFolders(nextFolders);
+      setStarredIds([...nextFiles, ...nextFolders].map((item) => item.id));
+    } catch {
+      toast.error('Failed to load favorites');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'trash') loadTrash();
+    if (activeTab === 'recent') loadRecentFiles();
+    if (activeTab === 'starred') loadFavorites();
+  }, [activeTab, loadTrash, loadRecentFiles, loadFavorites]);
+
   const onDrop = async (acceptedFiles) => {
     for (const file of acceptedFiles) {
       const formData = new FormData();
@@ -166,16 +209,19 @@ const Dashboard = () => {
       }
     }
     loadFiles();
+    loadStorageStats();
   };
 
-  const { getRootProps, getInputProps } = useDropzone({ onDrop, multiple: true });
+  const { getRootProps, getInputProps, open } = useDropzone({ onDrop, multiple: true, noClick: true, noKeyboard: true });
 
   // --- GHI NHẬN FILE VỪA TRUY CẬP (RECENT) ---
-  const trackRecentFile = (fileId) => {
-    setRecentFileIds((prev) => {
-      const filtered = prev.filter((id) => id !== fileId);
-      return [fileId, ...filtered].slice(0, 20);
-    });
+  const trackRecentFile = async (fileId) => {
+    try {
+      await filesAPI.markRecent(fileId);
+      await loadRecentFiles();
+    } catch {
+      // The file can disappear while a menu is open.
+    }
   };
 
   // --- HÀM XEM TRƯỚC TỆP (PREVIEW) ---
@@ -189,14 +235,11 @@ const Dashboard = () => {
     try {
       const response = await filesAPI.downloadFile(file.id);
       const blob = new Blob([response.data], { type: file.mimetype });
-      const url = window.URL.createObjectURL(blob);
-
       if (file.originalName.endsWith('.docx') || file.mimetype?.includes('word')) {
         const arrayBuffer = await blob.arrayBuffer();
-        const result = await mammoth.convertToHtml({ arrayBuffer });
-        setPreviewContent(result.value);
+        setPreviewContent(await extractDocxText(arrayBuffer));
       } else {
-        setPreviewContent(url);
+        setPreviewContent(window.URL.createObjectURL(blob));
       }
     } catch (error) {
       toast.error('Không thể tải nội dung xem trước');
@@ -216,59 +259,60 @@ const Dashboard = () => {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
       toast.success('Download started');
     } catch (error) {
       toast.error('Failed to download file');
     }
   };
 
-  const toggleStar = (e, id) => {
+  const toggleStar = async (e, id, itemType = 'file') => {
     e.stopPropagation();
-    setStarredIds((prev) => {
-      if (prev.includes(id)) {
-        toast.success('Removed from starred');
-        return prev.filter((item) => item !== id);
-      } else {
-        toast.success('Added to starred');
-        return [...prev, id];
-      }
-    });
-  };
-
-  const handleMoveToTrash = (item, type = 'file') => {
-    if (type === 'file') {
-      // 1. Lọc bỏ file khỏi danh sách hiển thị hiện tại
-      setFiles((prev) => prev.filter((f) => f.id !== item.id));
-      // 2. Thêm vào danh sách Thùng rác (Trash)
-      setTrashFiles((prev) => [...prev, { ...item, itemType: 'file', deletedAt: new Date() }]);
-      // 3. Xóa khỏi danh sách Recent nếu có
-      setRecentFileIds((prev) => prev.filter((id) => id !== item.id));
-    } else {
-      setFolders((prev) => prev.filter((f) => f.id !== item.id));
-      setTrashFiles((prev) => [...prev, { ...item, itemType: 'folder', deletedAt: new Date() }]);
+    try {
+      const response = itemType === 'folder'
+        ? await foldersAPI.toggleFavorite(id)
+        : await filesAPI.toggleFavorite(id);
+      const item = response.data.folder || response.data.file;
+      setStarredIds((previous) => item.favorite
+        ? [...new Set([...previous, id])]
+        : previous.filter((starredId) => starredId !== id));
+      await loadFavorites();
+      toast.success(item.favorite ? 'Added to starred' : 'Removed from starred');
+    } catch {
+      toast.error('Failed to update favorite');
     }
-
-    // Xóa khỏi danh sách Starred và đóng menu tùy chọn
-    setStarredIds((prev) => prev.filter((id) => id !== item.id));
-    setActiveMenuId(null);
-    if (selectedItemForInfo?.id === item.id) setSelectedItemForInfo(null);
-    
-    toast.success(`Đã chuyển vào thùng rác`);
   };
 
-  const handleRestoreFromTrash = (item) => {
-    setTrashFiles((prev) => prev.filter((i) => i.id !== item.id));
-    if (item.itemType === 'file') setFiles((prev) => [...prev, item]);
-    else setFolders((prev) => [...prev, item]);
-    toast.success(`Restored "${item.originalName || item.name}"`);
+  const handleMoveToTrash = async (item, type = 'file') => {
+    try {
+      if (type === 'file') await filesAPI.deleteFile(item.id);
+      else await foldersAPI.deleteFolder(item.id);
+      setActiveMenuId(null);
+      if (selectedItemForInfo?.id === item.id) setSelectedItemForInfo(null);
+      await Promise.all([loadFiles(), loadTrash(), loadFavorites(), loadRecentFiles(), loadStorageStats()]);
+      toast.success('Moved to trash');
+    } catch {
+      toast.error('Could not move item to trash');
+    }
+  };
+
+  const handleRestoreFromTrash = async (item) => {
+    try {
+      if (item.itemType === 'file') await filesAPI.restoreFile(item.id);
+      else await foldersAPI.restoreFolder(item.id);
+      await Promise.all([loadTrash(), loadFiles(), loadStorageStats()]);
+      toast.success(`Restored "${item.originalName || item.name}"`);
+    } catch {
+      toast.error('Could not restore item');
+    }
   };
 
   const handleDeletePermanently = async (item) => {
     if (!window.confirm(`Permanently delete "${item.originalName || item.name}"?`)) return;
     try {
-      if (item.itemType === 'file') await filesAPI.deleteFile(item.id);
-      else await foldersAPI.deleteFolder(item.id);
-      setTrashFiles((prev) => prev.filter((i) => i.id !== item.id));
+      if (item.itemType === 'file') await filesAPI.permanentlyDeleteFile(item.id);
+      else await foldersAPI.permanentlyDeleteFolder(item.id);
+      await Promise.all([loadTrash(), loadFiles(), loadStorageStats()]);
       toast.success('Permanently deleted');
     } catch (error) {
       toast.error('Failed to delete');
@@ -277,14 +321,12 @@ const Dashboard = () => {
 
   const handleEmptyTrash = async () => {
     if (!window.confirm('Empty trash completely?')) return;
-    for (const item of trashFiles) {
-      try {
-        if (item.itemType === 'file') await filesAPI.deleteFile(item.id);
-        else await foldersAPI.deleteFolder(item.id);
-      } catch (e) {}
-    }
-    setTrashFiles([]);
-    toast.success('Trash emptied');
+    const results = await Promise.allSettled(trashFiles.map((item) => item.itemType === 'file'
+      ? filesAPI.permanentlyDeleteFile(item.id)
+      : foldersAPI.permanentlyDeleteFolder(item.id)));
+    await Promise.all([loadTrash(), loadFiles(), loadStorageStats()]);
+    if (results.every((result) => result.status === 'fulfilled')) toast.success('Trash emptied');
+    else toast.error('Some trash items could not be deleted');
   };
 
   const handleCreateFolder = async () => {
@@ -360,31 +402,76 @@ const Dashboard = () => {
   const filteredFolders = folders.filter(f => f.name.toLowerCase().includes(searchTerm.toLowerCase()));
   const filteredTrash = trashFiles.filter(i => (i.originalName || i.name).toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const starredFiles = files.filter(f => starredIds.includes(f.id) && f.originalName.toLowerCase().includes(searchTerm.toLowerCase()));
-  const starredFolders = folders.filter(f => starredIds.includes(f.id) && f.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  const visibleStarredFiles = starredFiles.filter((file) => file.originalName.toLowerCase().includes(searchTerm.toLowerCase()));
+  const visibleStarredFolders = starredFolders.filter((folder) => folder.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  const visibleRecentFiles = recentFiles.filter((file) => file.originalName.toLowerCase().includes(searchTerm.toLowerCase()));
 
-  const recentFiles = recentFileIds
-    .map(id => files.find(f => f.id === id))
-    .filter(f => f && f.originalName.toLowerCase().includes(searchTerm.toLowerCase()));
+  const storagePercent = storageStats.quota > 0
+    ? Math.min((storageStats.used / storageStats.quota) * 100, 100)
+    : 0;
 
-  const totalBytesUsed = files.reduce((acc, f) => acc + (f.size || 0), 0);
+  const navItems = [
+    {
+      id: 'drive',
+      label: 'My Drive',
+      icon: HardDrive,
+      active: activeTab === 'drive' && driveScope === 'my-drive',
+      onClick: () => { setActiveTab('drive'); setDriveScope('my-drive'); setCurrentFolder(null); }
+    },
+    {
+      id: 'recent',
+      label: 'Recent',
+      icon: Clock,
+      active: activeTab === 'recent',
+      count: recentFiles.length,
+      onClick: () => { setActiveTab('recent'); setCurrentFolder(null); }
+    },
+    {
+      id: 'starred',
+      label: 'Starred',
+      icon: Star,
+      active: activeTab === 'starred',
+      count: starredFiles.length + starredFolders.length,
+      onClick: () => { setActiveTab('starred'); setCurrentFolder(null); }
+    },
+    {
+      id: 'shared',
+      label: 'Shared with me',
+      icon: Users,
+      active: activeTab === 'drive' && driveScope === 'shared',
+      onClick: () => { setActiveTab('drive'); setDriveScope('shared'); setCurrentFolder(null); }
+    },
+    {
+      id: 'notes',
+      label: 'Notes & Planner',
+      icon: Sparkles,
+      active: activeTab === 'notes',
+      onClick: () => setActiveTab('notes')
+    },
+    {
+      id: 'trash',
+      label: 'Trash',
+      icon: Trash2,
+      active: activeTab === 'trash',
+      count: trashFiles.length,
+      onClick: () => setActiveTab('trash')
+    }
+  ];
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors duration-300 font-sans flex flex-col">
+    <div className="min-h-screen bg-archive-fog dark:bg-slate-950 text-archive-ink dark:text-slate-100 transition-colors duration-300 font-sans flex flex-col">
       
       {/* Top Header */}
       <header className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-md sticky top-0 z-50 border-b border-slate-200/80 dark:border-slate-800 shadow-2xs">
         <div className="max-w-full mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between items-center h-16">
             <div className="flex items-center space-x-3">
-              <div className="w-10 h-10 bg-gradient-to-tr from-blue-600 to-indigo-500 rounded-2xl flex items-center justify-center shadow-md shadow-blue-500/20 text-white">
+              <div className="w-10 h-10 bg-archive-teal rounded-2xl flex items-center justify-center text-white">
                 <Cloud className="h-5 w-5" />
               </div>
               <div>
-                <span className="text-lg font-bold bg-gradient-to-r from-blue-600 to-indigo-600 dark:from-blue-400 dark:to-indigo-400 bg-clip-text text-transparent">
-                  Drive Clone
-                </span>
-                <span className="block text-[10px] text-slate-400 font-medium tracking-wider uppercase">Workspace Pro</span>
+                <span className="text-lg font-bold text-archive-ink dark:text-white">Drive</span>
+                <span className="block text-[10px] text-slate-400 font-medium">Your file archive</span>
               </div>
             </div>
             
@@ -394,6 +481,7 @@ const Dashboard = () => {
                 <input
                   type="text"
                   placeholder="Search in drive..."
+                  aria-label="Search files and folders"
                   className="pl-10 pr-4 py-2 text-sm bg-slate-100 dark:bg-slate-800/80 border-none rounded-2xl focus:ring-2 focus:ring-blue-500 focus:outline-none transition-all w-64 lg:w-96"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
@@ -440,17 +528,61 @@ const Dashboard = () => {
         </div>
       </header>
 
+      <nav className="md:hidden sticky top-16 z-40 bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-800" aria-label="Workspace sections">
+        <div className="flex gap-1 overflow-x-auto px-3 py-2">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={item.onClick}
+                aria-current={item.active ? 'page' : undefined}
+                className={`inline-flex shrink-0 items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold transition-colors ${item.active ? 'bg-archive-teal/10 text-archive-teal' : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+              >
+                <Icon size={16} aria-hidden="true" />
+                {item.label}
+                {item.count > 0 && <span className="rounded-full bg-archive-teal px-1.5 py-0.5 text-[10px] text-white">{item.count}</span>}
+              </button>
+            );
+          })}
+        </div>
+        <div className="flex items-center gap-2 px-4 pb-3">
+          <div className="relative min-w-0 flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <input
+              type="search"
+              aria-label="Search files and folders"
+              placeholder="Search your archive"
+              className="w-full rounded-xl border border-slate-200 bg-archive-fog py-2 pl-9 pr-3 text-sm dark:border-slate-700 dark:bg-slate-800"
+              value={searchTerm}
+              onChange={(event) => setSearchTerm(event.target.value)}
+            />
+          </div>
+          {activeTab === 'drive' && driveScope === 'my-drive' && (
+            <>
+              <button type="button" onClick={open} aria-label="Upload files" className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-archive-teal px-3 py-2 text-xs font-semibold text-white">
+                <Plus size={15} aria-hidden="true" /> Upload
+              </button>
+              <button type="button" onClick={() => setShowNewFolderModal(true)} aria-label="Create a folder" className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-archive-ink dark:border-slate-700 dark:bg-slate-800 dark:text-white">
+                <FolderPlus size={15} aria-hidden="true" /> Folder
+              </button>
+            </>
+          )}
+        </div>
+      </nav>
+
       {/* Main Layout Container */}
       <div className="flex flex-1 overflow-hidden">
         
         {/* Sidebar */}
-        <aside className="w-64 bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 p-4 hidden md:flex flex-col justify-between shrink-0">
+        <aside className="w-64 bg-white dark:bg-archive-ink border-r border-slate-200 dark:border-slate-800 p-4 hidden md:flex flex-col justify-between shrink-0">
           <div className="space-y-6">
             {driveScope === 'my-drive' && activeTab === 'drive' && (
               <div className="relative group">
                 <div {...getRootProps()} className="w-full">
                   <input {...getInputProps()} />
-                  <button className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white rounded-2xl font-semibold text-sm shadow-lg shadow-blue-500/25 transition-all">
+                  <button type="button" onClick={open} className="w-full flex items-center justify-center gap-2 py-3 px-4 bg-archive-teal hover:bg-teal-800 text-white rounded-2xl font-semibold text-sm transition-colors">
                     <Plus size={18} />
                     New Upload
                   </button>
@@ -458,99 +590,22 @@ const Dashboard = () => {
               </div>
             )}
 
-            <nav className="space-y-1">
-              <button
-                onClick={() => { setActiveTab('drive'); setDriveScope('my-drive'); setCurrentFolder(null); }}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
-                  activeTab === 'drive' && driveScope === 'my-drive'
-                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
-              >
-                <HardDrive size={18} />
-                My Drive
-              </button>
-
-              <button
-                onClick={() => { setActiveTab('recent'); setCurrentFolder(null); }}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
-                  activeTab === 'recent'
-                    ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Clock size={18} />
-                  Recent
-                </div>
-                {recentFiles.length > 0 && (
-                  <span className="px-2 py-0.5 bg-blue-500 text-white rounded-full text-[10px] font-bold">
-                    {recentFiles.length}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => { setActiveTab('starred'); setCurrentFolder(null); }}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
-                  activeTab === 'starred'
-                    ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-600 dark:text-amber-400'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Star size={18} />
-                  Starred
-                </div>
-                {(starredFiles.length + starredFolders.length) > 0 && (
-                  <span className="px-2 py-0.5 bg-amber-500 text-white rounded-full text-[10px] font-bold">
-                    {starredFiles.length + starredFolders.length}
-                  </span>
-                )}
-              </button>
-
-              <button
-                onClick={() => { setActiveTab('drive'); setDriveScope('shared'); setCurrentFolder(null); }}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
-                  activeTab === 'drive' && driveScope === 'shared'
-                    ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
-              >
-                <Users size={18} />
-                Shared with me
-              </button>
-
-              <button
-                onClick={() => setActiveTab('notes')}
-                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
-                  activeTab === 'notes'
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-600 dark:text-emerald-400'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
-              >
-                <Sparkles size={18} />
-                Notes & Planner
-              </button>
-
-              <button
-                onClick={() => setActiveTab('trash')}
-                className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
-                  activeTab === 'trash'
-                    ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400'
-                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Trash2 size={18} />
-                  Trash Bin
-                </div>
-                {trashFiles.length > 0 && (
-                  <span className="px-2 py-0.5 bg-rose-500 text-white rounded-full text-[10px] font-bold">
-                    {trashFiles.length}
-                  </span>
-                )}
-              </button>
+            <nav className="space-y-1" aria-label="Workspace sections">
+              {navItems.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={item.onClick}
+                    aria-current={item.active ? 'page' : undefined}
+                    className={`w-full flex items-center justify-between border-l-2 px-3.5 py-2.5 text-left text-xs font-semibold transition-colors ${item.active ? 'border-archive-teal bg-archive-teal/10 text-archive-teal dark:text-teal-300' : 'border-transparent rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'}`}
+                  >
+                    <span className="flex items-center gap-3"><Icon size={18} aria-hidden="true" />{item.label}</span>
+                    {item.count > 0 && <span className="rounded-full bg-archive-teal px-2 py-0.5 text-[10px] font-bold text-white">{item.count}</span>}
+                  </button>
+                );
+              })}
             </nav>
           </div>
 
@@ -560,11 +615,11 @@ const Dashboard = () => {
               <span className="text-xs font-bold text-slate-700 dark:text-slate-200">Storage</span>
             </div>
             <div className="w-full bg-slate-200 dark:bg-slate-700 h-1.5 rounded-full overflow-hidden">
-              <div className="bg-blue-600 h-full rounded-full transition-all duration-500" style={{ width: `${Math.min((totalBytesUsed / (1024 * 1024 * 500)) * 100, 100)}%` }}></div>
+              <div className="bg-archive-teal h-full rounded-full transition-all duration-500" style={{ width: `${storagePercent}%` }}></div>
             </div>
             <div className="text-[10px] text-slate-400 flex justify-between">
-              <span>{formatFileSize(totalBytesUsed)} used</span>
-              <span>500 MB</span>
+              <span>{formatFileSize(storageStats.used)} used</span>
+              <span>{formatFileSize(storageStats.quota)}</span>
             </div>
           </div>
         </aside>
@@ -593,7 +648,14 @@ const Dashboard = () => {
                 )}
               </div>
 
-              {filteredTrash.length === 0 ? (
+              {trashLoading ? (
+                <div role="status" className="py-16 text-center text-sm text-slate-500">Loading trash…</div>
+              ) : trashError ? (
+                <div role="alert" className="py-16 text-center text-sm text-rose-600">
+                  <p>Trash could not be loaded.</p>
+                  <button type="button" onClick={loadTrash} className="mt-3 font-semibold underline">Try again</button>
+                </div>
+              ) : filteredTrash.length === 0 ? (
                 <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
                   <div className="w-16 h-16 bg-rose-500/10 text-rose-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
                     <Trash2 size={28} />
@@ -615,10 +677,10 @@ const Dashboard = () => {
                         </div>
                       </div>
                       <div className="flex items-center space-x-1 shrink-0 ml-2">
-                        <button onClick={() => handleRestoreFromTrash(item)} className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-xl transition-all" title="Restore">
+                        <button type="button" onClick={() => handleRestoreFromTrash(item)} aria-label={`Restore ${item.originalName || item.name}`} className="p-2 text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/40 rounded-xl transition-all" title="Restore">
                           <RotateCcw size={15} />
                         </button>
-                        <button onClick={() => handleDeletePermanently(item)} className="p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-all" title="Delete forever">
+                        <button type="button" onClick={() => handleDeletePermanently(item)} aria-label={`Delete ${item.originalName || item.name} forever`} className="p-2 text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 rounded-xl transition-all" title="Delete forever">
                           <Trash2 size={15} />
                         </button>
                       </div>
@@ -637,7 +699,7 @@ const Dashboard = () => {
                 <p className="text-xs text-slate-400 mt-0.5">Quickly access your important items marked with a star.</p>
               </div>
 
-              {starredFiles.length === 0 && starredFolders.length === 0 ? (
+              {visibleStarredFiles.length === 0 && visibleStarredFolders.length === 0 ? (
                 <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
                   <div className="w-16 h-16 bg-amber-500/10 text-amber-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
                     <Star size={28} />
@@ -647,11 +709,11 @@ const Dashboard = () => {
                 </div>
               ) : (
                 <div className="space-y-8">
-                  {starredFolders.length > 0 && (
+                  {visibleStarredFolders.length > 0 && (
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">Starred Folders</h3>
                       <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5' : 'space-y-2'}>
-                        {starredFolders.map((folder) => (
+                        {visibleStarredFolders.map((folder) => (
                           <div
                             key={folder.id}
                             className={`bg-white dark:bg-slate-900 rounded-2xl border border-slate-200/90 dark:border-slate-800 shadow-2xs hover:shadow-md transition-all cursor-pointer group relative p-3.5 ${
@@ -674,7 +736,7 @@ const Dashboard = () => {
                             </div>
                             
                             <div className="absolute top-2.5 right-2.5 flex items-center gap-1">
-                              <button onClick={(e) => toggleStar(e, folder.id)} className="p-1.5 text-amber-500 hover:scale-110 transition-transform" title="Unstar">
+                              <button onClick={(e) => toggleStar(e, folder.id, 'folder')} className="p-1.5 text-amber-500 hover:scale-110 transition-transform" title="Unstar">
                                 <Star size={16} className="fill-amber-500" />
                               </button>
                             </div>
@@ -684,11 +746,11 @@ const Dashboard = () => {
                     </div>
                   )}
 
-                  {starredFiles.length > 0 && (
+                  {visibleStarredFiles.length > 0 && (
                     <div>
                       <h3 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 px-1">Starred Files</h3>
                       <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5' : 'space-y-2'}>
-                        {starredFiles.map((file) => (
+                        {visibleStarredFiles.map((file) => (
                           <div
                             key={file.id}
                             onClick={() => {
@@ -734,7 +796,7 @@ const Dashboard = () => {
                 <p className="text-xs text-slate-400 mt-0.5">Files you have recently opened, downloaded, or interacted with.</p>
               </div>
 
-              {recentFiles.length === 0 ? (
+              {visibleRecentFiles.length === 0 ? (
                 <div className="text-center py-20 bg-white dark:bg-slate-900 rounded-3xl border border-slate-200 dark:border-slate-800">
                   <div className="w-16 h-16 bg-blue-500/10 text-blue-500 rounded-3xl flex items-center justify-center mx-auto mb-4">
                     <Clock size={28} />
@@ -744,7 +806,7 @@ const Dashboard = () => {
                 </div>
               ) : (
                 <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3.5' : 'space-y-2'}>
-                  {recentFiles.map((file) => {
+                  {visibleRecentFiles.map((file) => {
                     const isStarred = starredIds.includes(file.id);
                     return (
                       <div
@@ -854,7 +916,7 @@ const Dashboard = () => {
                               
                               <div className="absolute top-2.5 right-2.5 flex items-center gap-1">
                                 <button
-                                  onClick={(e) => toggleStar(e, folder.id)}
+                                  onClick={(e) => toggleStar(e, folder.id, 'folder')}
                                   className={`p-1.5 rounded-lg transition-all ${isStarred ? 'text-amber-500' : 'text-slate-300 dark:text-slate-700 hover:text-amber-400'}`}
                                   title={isStarred ? 'Unstar' : 'Star'}
                                 >
@@ -1103,7 +1165,7 @@ const Dashboard = () => {
               ) : previewFile.mimetype?.includes('pdf') ? (
                 <iframe src={previewContent} title={previewFile.originalName} className="w-full h-full rounded-2xl border border-slate-200 dark:border-slate-800" />
               ) : previewFile.originalName.endsWith('.docx') || previewFile.mimetype?.includes('word') ? (
-                <div className="w-full h-full bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-sm overflow-y-auto prose dark:prose-invert text-xs" dangerouslySetInnerHTML={{ __html: previewContent }} />
+                <pre className="w-full h-full whitespace-pre-wrap bg-white dark:bg-slate-900 p-8 rounded-2xl shadow-sm overflow-y-auto text-xs font-sans">{previewContent}</pre>
               ) : (
                 <div className="text-center py-12">
                   <p className="text-xs text-slate-500 mb-3">Định dạng này không hỗ trợ xem trước trực tiếp.</p>

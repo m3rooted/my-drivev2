@@ -2,9 +2,9 @@ const jwt = require('jsonwebtoken');
 
 const auth = (req, res, next) => {
   try {
-    const bearerToken = req.header('Authorization')?.replace('Bearer ', '');
-    const queryToken = typeof req.query?.token === 'string' ? req.query.token : null;
-    const token = bearerToken || queryToken;
+    const authorization = req.header('Authorization') || '';
+    const bearerMatch = authorization.match(/^Bearer\s+(\S+)$/i);
+    const token = bearerMatch?.[1];
     
     if (!token) {
       return res.status(401).json({ error: 'No token provided' });

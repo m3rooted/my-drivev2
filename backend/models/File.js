@@ -1,6 +1,36 @@
 const { v4: uuidv4 } = require('uuid');
 const fs = require('fs-extra');
 const path = require('path');
+const { persistState } = require('../storage/persistence');
+const { stageFilesForPermanentDelete } = require('../services/pendingFileDeletes');
+
+const getUploadDirectory = () => path.resolve(
+  process.env.UPLOAD_DIR || path.join(__dirname, '..', 'uploads')
+);
+
+const getSafeUploadPath = (filename) => {
+  if (typeof filename !== 'string' || !filename) return null;
+  const uploadDirectory = getUploadDirectory();
+  const filePath = path.resolve(uploadDirectory, path.basename(filename));
+  return filePath.startsWith(`${uploadDirectory}${path.sep}`) ? filePath : null;
+};
+
+const collectFolderIds = (folders, userId, rootId) => {
+  const folderIds = new Set([rootId]);
+  const pending = [rootId];
+
+  while (pending.length > 0) {
+    const parentId = pending.pop();
+    for (const folder of folders) {
+      if (folder.userId === userId && folder.parentId === parentId && !folderIds.has(folder.id)) {
+        folderIds.add(folder.id);
+        pending.push(folder.id);
+      }
+    }
+  }
+
+  return folderIds;
+};
 
 class File {
   constructor() {
@@ -16,6 +46,8 @@ class File {
       versions: [],
       favorite: false,
       recentAt: null,
+      favoritedBy: [],
+      recentByUser: {},
       deletedAt: null,
       shareToken: null,
       createdAt: new Date(),
@@ -23,6 +55,7 @@ class File {
     };
 
     this.files.push(file);
+    await persistState();
     return file;
   }
 
@@ -31,28 +64,30 @@ class File {
       id: uuidv4(),
       ...folderData,
       type: 'folder',
+      favorite: false,
       createdAt: new Date(),
       updatedAt: new Date()
     };
 
     this.folders.push(folder);
+    await persistState();
     return folder;
   }
 
   async getFilesByUserId(userId, folderId = null) {
-    return this.files.filter(file => 
+    return this.files.filter(file =>
       file.userId === userId && !file.deletedAt && file.folderId === folderId
     );
   }
 
   async getFoldersByUserId(userId, parentId = null) {
-    return this.folders.filter(folder => 
+    return this.folders.filter(folder =>
       folder.userId === userId && !folder.deletedAt && folder.parentId === parentId
     );
   }
 
   async getFileById(id, userId) {
-    return this.files.find(file => file.id === id && file.userId === userId);
+    return this.files.find(file => file.id === id && file.userId === userId && !file.deletedAt);
   }
 
   async getFileByIdForUser(id, userId) {
@@ -71,7 +106,7 @@ class File {
 
   async getSharedFilesForUser(userId) {
     return this.files.filter((file) =>
-      (file.sharedWith || []).some((share) => share.userId === userId)
+      !file.deletedAt && (file.sharedWith || []).some((share) => share.userId === userId)
     );
   }
 
@@ -101,6 +136,7 @@ class File {
     }
 
     file.updatedAt = new Date();
+    await persistState();
     return file;
   }
 
@@ -118,6 +154,7 @@ class File {
     }
 
     file.updatedAt = new Date();
+    await persistState();
     return true;
   }
 
@@ -136,43 +173,203 @@ class File {
   }
 
   async getFolderById(id, userId) {
-    return this.folders.find(folder => folder.id === id && folder.userId === userId);
+    return this.folders.find(folder => folder.id === id && folder.userId === userId && !folder.deletedAt);
   }
 
   async deleteFile(id, userId) {
     const file = this.files.find(file => file.id === id && file.userId === userId && !file.deletedAt);
     if (file) {
       file.deletedAt = new Date();
+      await persistState();
       return true;
     }
     return false;
   }
 
-  async getTrash(userId) { return { files: this.files.filter(f => f.userId === userId && f.deletedAt), folders: this.folders.filter(f => f.userId === userId && f.deletedAt) }; }
-  async restoreFile(id, userId) { const f = this.files.find(f => f.id === id && f.userId === userId && f.deletedAt); if (!f) return false; f.deletedAt = null; return true; }
-  async permanentlyDeleteFile(id, userId) { const i = this.files.findIndex(f => f.id === id && f.userId === userId && f.deletedAt); if (i < 0) return false; const f = this.files[i]; await fs.remove(path.join(__dirname, '..', process.env.UPLOAD_DIR || 'uploads', f.filename)); this.files.splice(i, 1); return true; }
-  async toggleFavorite(id, userId) { const f = await this.getFileById(id,userId); if (!f) return null; f.favorite = !f.favorite; return f; }
-  async markRecent(id,userId) { const f = await this.getFileByIdForUser(id,userId); if (f) f.recentAt = new Date(); return f; }
-  async createShareLink(id,userId,permission='viewer') { const f = await this.getFileById(id,userId); if (!f) return null; f.shareToken ||= uuidv4(); f.linkPermission = permission; return f; }
-  async getByShareToken(token) { return this.files.find(f => f.shareToken === token && !f.deletedAt) || null; }
-  async saveVersion(id,userId) { const f = await this.getFileById(id,userId); if (!f) return null; f.versions ||= []; f.versions.push({ filename:f.filename, originalName:f.originalName, size:f.size, mimetype:f.mimetype, createdAt:new Date() }); return f.versions; }
-  async getStorage(userId) { const files=this.files.filter(f=>f.userId===userId&&!f.deletedAt); const used=files.reduce((n,f)=>n+(f.size||0),0); const quota=Number(process.env.STORAGE_QUOTA_BYTES)||15*1024*1024*1024; return {used,quota,available:Math.max(0,quota-used)}; }
+  async getTrash(userId) {
+    const trashedFolderIds = new Set(this.folders
+      .filter((folder) => folder.userId === userId && folder.deletedAt)
+      .map((folder) => folder.id));
+    return {
+      files: this.files.filter((file) => file.userId === userId && file.deletedAt && !trashedFolderIds.has(file.folderId)),
+      folders: this.folders.filter((folder) => folder.userId === userId && folder.deletedAt && !trashedFolderIds.has(folder.parentId))
+    };
+  }
+
+  async restoreFile(id, userId) {
+    const file = this.files.find((entry) => entry.id === id && entry.userId === userId && entry.deletedAt);
+    if (!file) return false;
+    file.deletedAt = null;
+    file.updatedAt = new Date();
+    await persistState();
+    return true;
+  }
+
+  async permanentlyDeleteFile(id, userId) {
+    const file = this.files.find((entry) => entry.id === id && entry.userId === userId && entry.deletedAt);
+    if (!file) return false;
+    const filePath = getSafeUploadPath(file.filename);
+    if (!filePath) return false;
+    await fs.remove(filePath);
+    const currentIndex = this.files.findIndex((entry) => entry.id === id && entry.userId === userId && entry.deletedAt);
+    if (currentIndex < 0) return false;
+    this.files.splice(currentIndex, 1);
+    await persistState();
+    return true;
+  }
+
+  async permanentlyDeleteFolder(id, userId) {
+    const root = this.folders.find((folder) => folder.id === id && folder.userId === userId && folder.deletedAt);
+    if (!root) return false;
+
+    const folderIds = collectFolderIds(this.folders, userId, root.id);
+
+    const files = this.files.filter((file) => file.userId === userId && folderIds.has(file.folderId));
+    const stagedDelete = await stageFilesForPermanentDelete(files, getUploadDirectory());
+    try {
+      this.files = this.files.filter((file) => !(file.userId === userId && folderIds.has(file.folderId)));
+      this.folders = this.folders.filter((folder) => !(folder.userId === userId && folderIds.has(folder.id)));
+      await persistState();
+    } catch (error) {
+      await stagedDelete.rollback().catch((rollbackError) => {
+        console.error('Failed to restore files after permanent folder delete failed:', rollbackError.message);
+      });
+      throw error;
+    }
+    await stagedDelete.finalize().catch((error) => {
+      console.error('Could not clean staged files after permanent folder delete:', error.message);
+    });
+    return true;
+  }
+
+  async toggleFavorite(id, userId) {
+    const file = await this.getFileByIdForUser(id, userId);
+    if (!file) return null;
+    file.favoritedBy ||= file.favorite && file.userId === userId ? [userId] : [];
+    if (file.favoritedBy.includes(userId)) {
+      file.favoritedBy = file.favoritedBy.filter((favoritedBy) => favoritedBy !== userId);
+    } else {
+      file.favoritedBy.push(userId);
+    }
+    file.favorite = file.favoritedBy.includes(file.userId);
+    await persistState();
+    return file;
+  }
+
+  isFavoriteForUser(file, userId) {
+    if (Array.isArray(file.favoritedBy)) return file.favoritedBy.includes(userId);
+    return file.userId === userId && Boolean(file.favorite);
+  }
+
+  getRecentAtForUser(file, userId) {
+    return file.recentByUser?.[userId] || (file.userId === userId ? file.recentAt : null) || null;
+  }
+
+  async getFavorites(userId) {
+    return {
+      files: this.files.filter((file) =>
+        !file.deletedAt &&
+        (file.userId === userId || (file.sharedWith || []).some((share) => share.userId === userId)) &&
+        this.isFavoriteForUser(file, userId)
+      ),
+      folders: this.folders.filter((folder) => folder.userId === userId && folder.favorite && !folder.deletedAt)
+    };
+  }
+
+  async toggleFolderFavorite(id, userId) {
+    const folder = await this.getFolderById(id, userId);
+    if (!folder) return null;
+    folder.favorite = !folder.favorite;
+    folder.updatedAt = new Date();
+    await persistState();
+    return folder;
+  }
+
+  async markRecent(id, userId) {
+    const file = await this.getFileByIdForUser(id, userId);
+    if (file) {
+      const recentAt = new Date();
+      file.recentByUser ||= {};
+      file.recentByUser[userId] = recentAt;
+      if (file.userId === userId) file.recentAt = recentAt;
+      await persistState();
+    }
+    return file;
+  }
+
+  async createShareLink(id, userId, permission = 'viewer') {
+    const file = await this.getFileById(id, userId);
+    if (!file) return null;
+    file.shareToken ||= uuidv4();
+    file.linkPermission = permission;
+    await persistState();
+    return file;
+  }
+
+  async getByShareToken(token) {
+    return this.files.find((file) => file.shareToken === token && !file.deletedAt) || null;
+  }
+
+  async saveVersion(id, userId) {
+    const file = await this.getFileById(id, userId);
+    if (!file) return null;
+    file.versions ||= [];
+    file.versions.push({
+      filename: file.filename,
+      originalName: file.originalName,
+      size: file.size,
+      mimetype: file.mimetype,
+      createdAt: new Date()
+    });
+    await persistState();
+    return file.versions;
+  }
+
+  async getStorage(userId) {
+    const files = this.files.filter((file) => file.userId === userId);
+    const used = files.reduce((total, file) => total + (file.size || 0), 0);
+    const quota = Number(process.env.STORAGE_QUOTA_BYTES) || 15 * 1024 * 1024 * 1024;
+    return { used, quota, available: Math.max(0, quota - used) };
+  }
 
   async deleteFolder(id, userId) {
-    const folderIndex = this.folders.findIndex(folder => folder.id === id && folder.userId === userId);
-    if (folderIndex > -1) {
-      // TODO: Add recursive deletion of contents
-      this.folders.splice(folderIndex, 1);
-      return true;
+    const root = this.folders.find((folder) => folder.id === id && folder.userId === userId && !folder.deletedAt);
+    if (!root) return false;
+
+    const folderIds = collectFolderIds(this.folders, userId, root.id);
+
+    const deletedAt = new Date();
+    for (const folder of this.folders) {
+      if (folderIds.has(folder.id) && !folder.deletedAt) folder.deletedAt = deletedAt;
     }
-    return false;
+    for (const file of this.files) {
+      if (file.userId === userId && folderIds.has(file.folderId) && !file.deletedAt) file.deletedAt = deletedAt;
+    }
+    await persistState();
+    return true;
+  }
+
+  async restoreFolder(id, userId) {
+    const root = this.folders.find((folder) => folder.id === id && folder.userId === userId && folder.deletedAt);
+    if (!root) return false;
+    const deletedAt = new Date(root.deletedAt).getTime();
+    const folderIds = collectFolderIds(this.folders, userId, root.id);
+    for (const folder of this.folders) {
+        if (folderIds.has(folder.id) && new Date(folder.deletedAt).getTime() === deletedAt) folder.deletedAt = null;
+    }
+    for (const file of this.files) {
+      if (file.userId === userId && folderIds.has(file.folderId) && new Date(file.deletedAt).getTime() === deletedAt) file.deletedAt = null;
+    }
+    await persistState();
+    return true;
   }
 
   async renameFile(id, userId, newName) {
-    const file = this.files.find(file => file.id === id && file.userId === userId);
+    const file = this.files.find(file => file.id === id && file.userId === userId && !file.deletedAt);
     if (file) {
       file.originalName = newName;
       file.updatedAt = new Date();
+      await persistState();
       return file;
     }
     return null;
@@ -191,14 +388,16 @@ class File {
 
     file.originalName = newName;
     file.updatedAt = new Date();
+    await persistState();
     return file;
   }
 
   async renameFolder(id, userId, newName) {
-    const folder = this.folders.find(folder => folder.id === id && folder.userId === userId);
+    const folder = this.folders.find(folder => folder.id === id && folder.userId === userId && !folder.deletedAt);
     if (folder) {
       folder.name = newName;
       folder.updatedAt = new Date();
+      await persistState();
       return folder;
     }
     return null;

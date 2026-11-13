@@ -1,4 +1,5 @@
 const { v4: uuidv4 } = require('uuid');
+const { persistState } = require('../storage/persistence');
 
 class Note {
   constructor() {
@@ -16,6 +17,7 @@ class Note {
     };
 
     this.notes.push(note);
+    await persistState();
     return note;
   }
 
@@ -40,6 +42,7 @@ class Note {
     }
 
     Object.assign(note, updateData, { updatedAt: new Date() });
+    await persistState();
     return note;
   }
 
@@ -50,6 +53,7 @@ class Note {
     }
 
     this.notes.splice(index, 1);
+    await persistState();
     return true;
   }
 }

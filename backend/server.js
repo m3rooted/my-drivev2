@@ -1,63 +1,58 @@
-const express = require('express');
-const cors = require('cors');
 const path = require('path');
 const fs = require('fs-extra');
+const { isIP } = require('node:net');
 require('dotenv').config();
+
+const HOST = process.env.HOST || '127.0.0.1';
+const isLoopbackHost = HOST === '::1' || (isIP(HOST) === 4 && HOST.startsWith('127.'));
 
 if (!process.env.JWT_SECRET) {
   if (process.env.NODE_ENV === 'production') {
     throw new Error('JWT_SECRET must be set in production');
   }
+  if (!isLoopbackHost) {
+    throw new Error('JWT_SECRET must be set when binding to a non-loopback host');
+  }
   process.env.JWT_SECRET = 'local-development-secret-change-before-deploying';
   console.warn('JWT_SECRET is not set; using a development-only secret.');
 }
 
-const authRoutes = require('./routes/auth');
-const fileRoutes = require('./routes/files');
-const folderRoutes = require('./routes/folders');
-const noteRoutes = require('./routes/notes');
+if (Buffer.byteLength(process.env.JWT_SECRET, 'utf8') < 32) {
+  throw new Error('JWT_SECRET must contain at least 32 bytes');
+}
 
-const app = express();
-const PORT = process.env.PORT || 5000;
+if (process.env.NODE_ENV === 'production' && /replace-with|local-development/i.test(process.env.JWT_SECRET)) {
+  throw new Error('Replace the example JWT_SECRET before starting in production');
+}
 
-// Middleware
-app.use(cors());
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+const createApp = require('./app');
+const UserModel = require('./models/User');
+const FileModel = require('./models/File');
+const NoteModel = require('./models/Note');
+const notesRouter = require('./routes/notes');
+const { initializePersistence } = require('./storage/persistence');
+const { recoverPendingFileDeletes } = require('./services/pendingFileDeletes');
 
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, process.env.UPLOAD_DIR || 'uploads');
-fs.ensureDirSync(uploadsDir);
+const PORT = Number(process.env.PORT) || 5000;
+const uploadsDir = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, 'uploads'));
 
-// Static files
-app.use('/uploads', express.static(uploadsDir));
+const startServer = async () => {
+  await fs.ensureDir(uploadsDir);
+  await initializePersistence({ User: UserModel, FileModel, NoteModel });
+  await recoverPendingFileDeletes(FileModel.files, uploadsDir);
+  await notesRouter.initializeReminders();
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/files', fileRoutes);
-app.use('/api/folders', folderRoutes);
-app.use('/api/notes', noteRoutes);
+  const server = createApp().listen(PORT, HOST, () => {
+    console.log(`Server is running at http://${HOST}:${PORT}`);
+  });
+  return server;
+};
 
-// Health check
-app.get('/', (req, res) => {
-  res.json({ status: 'OK', message: 'Drive Clone API', health: '/api/health' });
-});
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error('Failed to start Drive Clone API:', error.message);
+    process.exitCode = 1;
+  });
+}
 
-app.get('/api/health', (req, res) => {
-  res.json({ status: 'OK', message: 'Google Drive Clone API is running' });
-});
-
-// Error handling middleware
-app.use((error, req, res, next) => {
-  console.error(error);
-  res.status(500).json({ error: 'Something went wrong!' });
-});
-
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({ error: 'Route not found' });
-});
-
-app.listen(PORT, () => {
-  console.log(`Server is running on port ${PORT}`);
-});
+module.exports = { startServer };

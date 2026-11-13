@@ -2,6 +2,14 @@ const nodemailer = require('nodemailer');
 
 let cachedTransporter = null;
 
+const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (character) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+})[character]);
+
 const isEmailConfigured = () => {
   return Boolean(process.env.MAIL_USER && process.env.MAIL_APP_PASSWORD);
 };
@@ -45,6 +53,8 @@ const sendScheduleReminderEmail = async (email, schedule, minutesBefore, dueAt) 
   const startAt = formatDateTime(schedule.startAt);
   const endAt = schedule.endAt ? formatDateTime(schedule.endAt) : 'Not set';
   const dueTime = formatDateTime(dueAt || schedule.endAt || schedule.startAt);
+  const titleHtml = escapeHtml(schedule.title);
+  const contentHtml = escapeHtml(schedule.content);
 
   try {
     await transporter.sendMail({
@@ -63,11 +73,11 @@ const sendScheduleReminderEmail = async (email, schedule, minutesBefore, dueAt) 
         <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1f2937;">
           <h2 style="margin-bottom: 8px;">Schedule Reminder</h2>
           <p>Your schedule item is due in about <strong>${minutesBefore} minutes</strong>.</p>
-          <p><strong>Title:</strong> ${schedule.title}</p>
+          <p><strong>Title:</strong> ${titleHtml}</p>
           <p><strong>Due time:</strong> ${dueTime}</p>
           <p><strong>Start time:</strong> ${startAt}</p>
           <p><strong>End time:</strong> ${endAt}</p>
-          ${schedule.content ? `<p><strong>Details:</strong> ${schedule.content}</p>` : ''}
+          ${schedule.content ? `<p><strong>Details:</strong> ${contentHtml}</p>` : ''}
         </div>
       `
     });
@@ -81,5 +91,6 @@ const sendScheduleReminderEmail = async (email, schedule, minutesBefore, dueAt) 
 
 module.exports = {
   isEmailConfigured,
+  escapeHtml,
   sendScheduleReminderEmail
 };

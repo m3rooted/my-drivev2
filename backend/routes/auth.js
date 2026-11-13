@@ -2,16 +2,26 @@ const express = require('express');
 const jwt = require('jsonwebtoken');
 const User = require('../models/User');
 const auth = require('../middleware/auth');
+const {
+  isRecord,
+  isValidEmail,
+  isValidPassword,
+  normalizeDisplayName,
+  normalizeEmail
+} = require('../utils/validation');
 
 const router = express.Router();
 
 // Register
 router.post('/register', async (req, res) => {
   try {
-    const { email, password, name } = req.body;
+    const body = req.body;
+    const email = normalizeEmail(body?.email);
+    const name = normalizeDisplayName(body?.name, 80);
+    const password = body?.password;
 
-    if (!email || !password || !name) {
-      return res.status(400).json({ error: 'All fields are required' });
+    if (!isRecord(body) || !isValidEmail(email) || !name || !isValidPassword(password)) {
+      return res.status(400).json({ error: 'Enter a valid name, email, and password of at least 12 characters' });
     }
 
     const user = await User.create({ email, password, name });
@@ -39,13 +49,14 @@ router.post('/register', async (req, res) => {
 // Login
 router.post('/login', async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password } = isRecord(req.body) ? req.body : {};
+    const normalizedEmail = normalizeEmail(email);
 
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Email and password are required' });
+    if (!isValidEmail(normalizedEmail) || typeof password !== 'string' || Buffer.byteLength(password, 'utf8') > 72) {
+      return res.status(400).json({ error: 'Invalid credentials' });
     }
 
-    const user = await User.findByEmail(email.toLowerCase());
+    const user = await User.findByEmail(normalizedEmail);
     if (!user) {
       return res.status(400).json({ error: 'Invalid credentials' });
     }
