@@ -11,6 +11,8 @@ services:
       DATA_FILE: /app/data/drive-store.json
       UPLOAD_DIR: /app/uploads
       PUBLIC_API_URL: http://127.0.0.1:5000/api
+      GEMINI_API_KEY: ${GEMINI_API_KEY-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
     ports:
       - "127.0.0.1:5000:5000"

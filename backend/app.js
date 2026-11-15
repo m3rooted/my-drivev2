@@ -5,6 +5,7 @@ const authRoutes = require('./routes/auth');
 const fileRoutes = require('./routes/files');
 const folderRoutes = require('./routes/folders');
 const noteRoutes = require('./routes/notes');
+const notebookRoutes = require('./routes/notebooks');
 
 const DEFAULT_ORIGINS = [
   'http://localhost:3000',
@@ -53,6 +54,7 @@ const createApp = () => {
   app.use('/api/files', fileRoutes);
   app.use('/api/folders', folderRoutes);
   app.use('/api/notes', noteRoutes);
+  app.use('/api/notebooks', notebookRoutes);
 
   app.get('/', (req, res) => {
     res.json({ status: 'OK', message: 'CloudNest API', health: '/api/health' });
@@ -66,14 +68,21 @@ const createApp = () => {
     if (res.headersSent) return next(error);
 
     const isUploadLimitError = typeof error?.code === 'string' && error.code.startsWith('LIMIT_');
+    const isClientError = Number.isInteger(error?.status) && error.status >= 400 && error.status < 500;
     const status = error?.code === 'LIMIT_FILE_SIZE'
       ? 413
       : isUploadLimitError
         ? 400
       : error?.status === 400 || error?.type === 'entity.too.large'
         ? (error.type === 'entity.too.large' ? 413 : 400)
+      : isClientError
+        ? error.status
         : 500;
-    const message = status === 413 ? 'Request is too large' : status === 400 ? 'Invalid request' : 'Something went wrong';
+    const message = status === 413
+      ? 'Request is too large'
+      : isClientError
+        ? error.message
+        : 'Something went wrong';
     if (status === 500) console.error('Unhandled request error:', error);
     res.status(status).json({ error: message });
   });

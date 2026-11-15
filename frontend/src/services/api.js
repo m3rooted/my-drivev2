@@ -80,6 +80,16 @@ export const notesAPI = {
   deleteNote: (id) => api.delete(`/notes/${id}`),
 };
 
+export const notebooksAPI = {
+  getStatus: () => api.get('/notebooks/status'),
+  getSources: () => api.get('/notebooks/sources'),
+  getNotebooks: () => api.get('/notebooks'),
+  getNotebook: (id) => api.get(`/notebooks/${id}`),
+  createNotebook: (notebook) => api.post('/notebooks', notebook),
+  sendMessage: (id, question) => api.post(`/notebooks/${id}/messages`, { question }),
+  deleteNotebook: (id) => api.delete(`/notebooks/${id}`)
+};
+
 export const getNotesStreamUrl = (ticket) => {
   const base = API_BASE_URL.replace(/\/$/, '');
   return `${base}/notes/stream?ticket=${encodeURIComponent(ticket)}`;

@@ -22,6 +22,8 @@ services:
       DATA_FILE: /app/data/drive-store.json
       UPLOAD_DIR: /app/uploads
       REGISTRATION_INVITES: ${REGISTRATION_INVITES?Set REGISTRATION_INVITES in the repository root .env file}
+      GEMINI_API_KEY: ${GEMINI_API_KEY-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
       PUBLIC_API_URL: https://${DOMAIN:?Set DOMAIN in the repository root .env file}/api
       CORS_ORIGINS: https://${DOMAIN:?Set DOMAIN in the repository root .env file}
     expose:

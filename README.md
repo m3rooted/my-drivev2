@@ -30,7 +30,7 @@ npm start
 
 Open <http://127.0.0.1:3000>. The API listens on <http://127.0.0.1:5000> and its health endpoint is `/api/health`.
 
-The backend defaults to loopback only and refuses the development fallback secret when bound to a non-loopback address. Its `.env` supports `PORT`, `HOST`, `JWT_SECRET`, `CORS_ORIGINS`, `PUBLIC_API_URL`, `REGISTRATION_INVITES`, `DATA_FILE`, and `UPLOAD_DIR`. Generate a private JWT secret for your local account data, for example:
+The backend defaults to loopback only and refuses the development fallback secret when bound to a non-loopback address. Its `.env` supports `PORT`, `HOST`, `JWT_SECRET`, `CORS_ORIGINS`, `PUBLIC_API_URL`, `REGISTRATION_INVITES`, `DATA_FILE`, `UPLOAD_DIR`, `GEMINI_API_KEY`, and `GEMINI_MODEL`. Generate a private JWT secret for your local account data, for example:
 
 ```powershell
 node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
@@ -38,6 +38,21 @@ node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
 
 Put the result in `backend/.env` as `JWT_SECRET=...`. Never commit `.env` files.
 The frontend command above keeps the dev server on loopback. Keep `HOST` at `127.0.0.1`; do not use `0.0.0.0` with the host-check override.
+
+## Notebook Chat
+
+Notebook Chat lets you create a saved conversation around up to six PDF, TXT, Markdown, or CSV files. The backend checks that each source is still accessible to the signed-in user, then sends the selected file content and recent conversation context to Google Gemini when a question is submitted. PDF and text source payloads are limited to 10 MiB total per question; text sources are limited to 2 MiB total. The Gemini API key stays on the backend and is never included in the frontend bundle. Review answers and citations against the original files before relying on them.
+
+Add a Gemini API key to `backend/.env`:
+
+```dotenv
+GEMINI_API_KEY=your-private-key
+GEMINI_MODEL=gemini-3.8-flash
+```
+
+Restart the backend after changing environment values. Without a key, Notebook Chat remains visible but questions are disabled. Notebook names and conversation messages are stored with the existing local metadata file. Only choose files you intend to send to Google Gemini; Google API data handling and billing terms apply.
+
+When running with Docker Compose, set the same `GEMINI_API_KEY` in the repository-root `.env`; Compose passes it to the backend at runtime. The key is optional, so the application can still start without AI chat configured.
 
 ## Deploy to one web server
 

@@ -33,6 +33,7 @@ const createApp = require('./app');
 const UserModel = require('./models/User');
 const FileModel = require('./models/File');
 const NoteModel = require('./models/Note');
+const NotebookModel = require('./models/Notebook');
 const notesRouter = require('./routes/notes');
 const { initializePersistence } = require('./storage/persistence');
 const { recoverPendingFileDeletes } = require('./services/pendingFileDeletes');
@@ -42,7 +43,7 @@ const uploadsDir = path.resolve(process.env.UPLOAD_DIR || path.join(__dirname, '
 
 const startServer = async () => {
   await fs.ensureDir(uploadsDir);
-  await initializePersistence({ User: UserModel, FileModel, NoteModel });
+  await initializePersistence({ User: UserModel, FileModel, NoteModel, NotebookModel });
   await recoverPendingFileDeletes(FileModel.files, uploadsDir);
   await notesRouter.initializeReminders();
 

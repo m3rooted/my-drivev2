@@ -38,9 +38,11 @@ import {
   Clock,
   Shield,
   Eye,
-  Link2
+  Link2,
+  BookOpen
 } from 'lucide-react';
 import NotesPlanner from './NotesPlanner';
+import NotebookChat from './NotebookChat';
 
 const Dashboard = () => {
   const dashboardActions = createDashboardActions({ filesAPI, foldersAPI });
@@ -490,6 +492,13 @@ const Dashboard = () => {
       onClick: () => setActiveTab('notes')
     },
     {
+      id: 'notebooks',
+      label: 'Notebook Chat',
+      icon: BookOpen,
+      active: activeTab === 'notebooks',
+      onClick: () => setActiveTab('notebooks')
+    },
+    {
       id: 'trash',
       label: 'Trash',
       icon: Trash2,
@@ -704,6 +713,18 @@ const Dashboard = () => {
               </button>
 
               <button
+                onClick={() => setActiveTab('notebooks')}
+                className={`w-full flex items-center gap-3 px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
+                  activeTab === 'notebooks'
+                    ? 'bg-archive-teal/10 dark:bg-archive-teal/20 text-archive-teal dark:text-archive-mint'
+                    : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                }`}
+              >
+                <BookOpen size={18} />
+                Notebook Chat
+              </button>
+
+              <button
                 onClick={() => setActiveTab('trash')}
                 className={`w-full flex items-center justify-between px-3.5 py-2.5 rounded-2xl text-xs font-semibold transition-all ${
                   activeTab === 'trash'
@@ -741,7 +762,9 @@ const Dashboard = () => {
 
         {/* Main Content Area */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-8">
-          {activeTab === 'notes' ? (
+          {activeTab === 'notebooks' ? (
+            <NotebookChat />
+          ) : activeTab === 'notes' ? (
             <NotesPlanner />
           ) : activeTab === 'trash' ? (
             <div>

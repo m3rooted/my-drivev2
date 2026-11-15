@@ -20,7 +20,7 @@ const createStore = (filePath) => {
         contents = await fs.readFile(filePath, 'utf8');
       } catch (error) {
         if (error.code === 'ENOENT') {
-          return { version: SCHEMA_VERSION, users: [], files: [], folders: [], notes: [] };
+          return { version: SCHEMA_VERSION, users: [], files: [], folders: [], notes: [], notebooks: [] };
         }
         throw error;
       }
@@ -33,12 +33,13 @@ const createStore = (filePath) => {
       }
 
       const isValid = data?.version === SCHEMA_VERSION &&
-        ['users', 'files', 'folders', 'notes'].every((key) => Array.isArray(data[key]));
+        ['users', 'files', 'folders', 'notes'].every((key) => Array.isArray(data[key])) &&
+        (data.notebooks === undefined || Array.isArray(data.notebooks));
       if (!isValid) {
         throw new Error(`Drive data at ${filePath} has an unsupported schema; startup stopped to protect existing data`);
       }
 
-      return data;
+      return { ...data, notebooks: data.notebooks || [] };
     },
 
     async save(state) {
@@ -70,6 +71,7 @@ const initializePersistence = async (models, options = {}) => {
   models.FileModel.files = state.files;
   models.FileModel.folders = state.folders;
   models.NoteModel.notes = state.notes;
+  if (models.NotebookModel) models.NotebookModel.notebooks = state.notebooks;
 
   activeStore = store;
   activeModels = models;
@@ -86,7 +88,8 @@ const persistState = async () => {
     users: activeModels.User.users,
     files: activeModels.FileModel.files,
     folders: activeModels.FileModel.folders,
-    notes: activeModels.NoteModel.notes
+    notes: activeModels.NoteModel.notes,
+    notebooks: activeModels.NotebookModel?.notebooks || []
   });
 
   try {
@@ -98,6 +101,9 @@ const persistState = async () => {
       activeModels.FileModel.files = structuredClone(lastCommittedState.files);
       activeModels.FileModel.folders = structuredClone(lastCommittedState.folders);
       activeModels.NoteModel.notes = structuredClone(lastCommittedState.notes);
+      if (activeModels.NotebookModel) {
+        activeModels.NotebookModel.notebooks = structuredClone(lastCommittedState.notebooks || []);
+      }
     }
     throw error;
   }
