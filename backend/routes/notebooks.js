@@ -201,8 +201,12 @@ router.post('/:id/messages', asyncHandler(async (req, res) => {
       sources: loadedSources
     });
   } catch (error) {
-    const status = [429, 502, 503].includes(error.status) ? error.status : 502;
-    return res.status(status).json({ error: error.message || 'Gemini could not answer this question' });
+    const timedOut = error.name === 'TimeoutError';
+    const status = timedOut ? 504 : [429, 502, 503].includes(error.status) ? error.status : 502;
+    const message = timedOut
+      ? 'Gemini took longer than 3 minutes to answer. You can retry your question.'
+      : error.message || 'Gemini could not answer this question';
+    return res.status(status).json({ error: message });
   }
   const turn = await NotebookModel.addConversationTurn(notebook.id, req.user.id, question, answer);
   if (!turn) return res.status(404).json({ error: 'Notebook not found' });

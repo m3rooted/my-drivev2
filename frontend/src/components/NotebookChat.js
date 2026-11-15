@@ -33,6 +33,7 @@ const NotebookChat = () => {
   const [loadingNotebook, setLoadingNotebook] = useState(false);
   const [creating, setCreating] = useState(false);
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState('');
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [loadError, setLoadError] = useState('');
   const conversationRef = useRef(null);
@@ -164,6 +165,7 @@ const NotebookChat = () => {
     if (!activeNotebook || !trimmedQuestion || sending || !aiConfigured) return;
 
     setSending(true);
+    setSendError('');
     try {
       const response = await notebooksAPI.sendMessage(activeNotebook.id, trimmedQuestion);
       const assistantMessage = response.data.message;
@@ -176,7 +178,9 @@ const NotebookChat = () => {
         : notebook));
       setQuestion('');
     } catch (error) {
-      toast.error(error.response?.data?.error || 'Could not send your question');
+      const message = error.response?.data?.error || 'Could not send your question';
+      setSendError(message);
+      toast.error(message);
     } finally {
       setSending(false);
       questionRef.current?.focus();
@@ -299,7 +303,7 @@ const NotebookChat = () => {
                     </article>
                   ))}
                   {sending && (
-                    <div className="flex items-center gap-3 text-sm text-slate-500" role="status"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-archive-teal/10 text-archive-teal"><Loader2 size={16} className="animate-spin" aria-hidden="true" /></span>Reading your sources…</div>
+                    <div className="flex items-center gap-3 text-sm text-slate-500" role="status"><span className="flex h-8 w-8 items-center justify-center rounded-xl bg-archive-teal/10 text-archive-teal"><Loader2 size={16} className="animate-spin" aria-hidden="true" /></span>Gemini is analyzing your sources. This can take up to 3 minutes…</div>
                   )}
                 </div>
 
@@ -328,6 +332,7 @@ const NotebookChat = () => {
                     </button>
                   </div>
                   <p className="mt-2 flex items-center gap-1.5 text-[11px] leading-5 text-slate-500 dark:text-slate-400"><ShieldCheck size={13} className="shrink-0" aria-hidden="true" />Selected file content and recent chat history go to Google Gemini. Check answers against your sources.</p>
+                  {sendError && <p className="mt-2 text-sm text-rose-600 dark:text-rose-300" role="alert">{sendError}</p>}
                 </form>
               </>
             ) : (

@@ -59,7 +59,7 @@ const requestGeminiAnswer = async ({ messages, question, sources, env = process.
         contents: createGeminiContents({ messages, question, sources }),
         generationConfig: { temperature: 0.2, maxOutputTokens: 2048 }
       }),
-      signal: AbortSignal.timeout(60000)
+      signal: AbortSignal.timeout(180000)
     }
   );
 
